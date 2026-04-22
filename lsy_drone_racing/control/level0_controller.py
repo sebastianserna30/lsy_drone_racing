@@ -58,6 +58,7 @@ class Level0Controller(Controller):
             waypoints.append(exit_)
 
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
+        self._waypoints = waypoints
 
         print("Waypoints:")                                                                                                                                                                               
         for i, wp in enumerate(waypoints):                                                                                                                                                                
@@ -119,3 +120,4 @@ class Level0Controller(Controller):
         draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
         trajectory = self._spline(np.linspace(0, self._t_total, 100))
         draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
+        draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.05)
