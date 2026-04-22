@@ -34,7 +34,7 @@ class Level0Controller(Controller):
         super().__init__(obs, info, config)
         self._freq = config.env.freq
         self._tick = 0
-        self._t_total = 15.0  # seconds — tune this later
+        self._t_total = 8.0  # seconds — tune this later
         self._finished = False
 
         gate_in_offset = 0.3  # metres along gate normal for entry/exit points — TODO: tune
@@ -50,14 +50,10 @@ class Level0Controller(Controller):
         gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
         gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
 
-        for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):                                                                                                             
-            next_pos = gates_pos[i + 1] if i < len(gates_pos) - 1 else None  
+        for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
             normal = Rotation.from_quat(quat).apply([1.0, 0.0, 0.0])
             entry = pos - gate_in_offset * normal
-            if(next_pos is not None):
-                if(next_pos - pos).dot(normal) < 0:  # if next gate is behind the current one, exit in the opposite direction
-                    normal = -normal
-            exit_ = pos + gate_out_offset * normal    
+            exit_ = pos + gate_out_offset * normal
             waypoints.append(entry)
             waypoints.append(pos)
             waypoints.append(exit_)
@@ -110,7 +106,8 @@ class Level0Controller(Controller):
             True if the controller has finished, False otherwise.
         """
         self._tick += 1
-        return self._finished
+
+        return obs["target_gate"] == -1   
 
     def episode_callback(self):
         """Reset internal state between episodes."""
