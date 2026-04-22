@@ -42,6 +42,10 @@ class Level0Controller(Controller):
         # --- Build waypoints ---
         waypoints = [obs["pos"].copy()]  # start at current drone position
 
+        takeoff = obs["pos"].copy()                                                                                                                                                                       
+        takeoff[2] = 0.5  # lift to 0.5m before going anywhere                                                                                                                                            
+        waypoints.append(takeoff)  
+
         gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
         gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
 
