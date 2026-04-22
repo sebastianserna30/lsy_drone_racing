@@ -37,7 +37,8 @@ class Level0Controller(Controller):
         self._t_total = 15.0  # seconds — tune this later
         self._finished = False
 
-        gate_offset = 0.3  # metres along gate normal for entry/exit points — TODO: tune
+        gate_in_offset = 0.3  # metres along gate normal for entry/exit points — TODO: tune
+        gate_out_offset = 0.5  # metres along gate normal for entry/exit points — TODO: tune
 
         # --- Build waypoints ---
         waypoints = [obs["pos"].copy()]  # start at current drone position
@@ -49,10 +50,14 @@ class Level0Controller(Controller):
         gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
         gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
 
-        for pos, quat in zip(gates_pos, gates_quat):
+        for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):                                                                                                             
+            next_pos = gates_pos[i + 1] if i < len(gates_pos) - 1 else None  
             normal = Rotation.from_quat(quat).apply([1.0, 0.0, 0.0])
-            entry = pos - gate_offset * normal
-            exit_ = pos + gate_offset * normal
+            entry = pos - gate_in_offset * normal
+            if(next_pos is not None):
+                if(next_pos - pos).dot(normal) < 0:  # if next gate is behind the current one, exit in the opposite direction
+                    normal = -normal
+            exit_ = pos + gate_out_offset * normal    
             waypoints.append(entry)
             waypoints.append(pos)
             waypoints.append(exit_)
