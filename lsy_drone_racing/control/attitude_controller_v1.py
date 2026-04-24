@@ -29,6 +29,83 @@ if TYPE_CHECKING:
 class AttitudeController_1(Controller):
     """Trajectory following controller using the collective thrust and attitude interface."""
 
+    def create_waypoints(self, obs: dict[str, NDArray[np.floating]]):
+        """Generate waypoints for racing through gates.
+
+        Args:
+            obs: The current observation containing gate positions and orientations.
+        """
+        gate_in_offset = 0.40  # metres along gate normal for entry/exit points — TODO: tune
+        gate_in_offset_prev = 0.3  # metres along vector from previous waypoint 
+        gate_out_offset = 0.40  # metres along gate normal for entry/exit points — TODO: tune
+        gate_out_offset_next = 0.3  # metres along vector from previous waypoint 
+
+        dip_degree = 120
+
+        waypoints = [self._start_pos]
+
+        takeoff = self._start_pos.copy()                                                                                                                                                                       
+        takeoff[2] = 0.5  # lift to 0.5m before going anywhere                                                                                                                                            
+        waypoints.append(takeoff)  
+
+        gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
+        gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
+
+        for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
+            normal = R.from_quat(quat).apply([1.0, 0.0, 0.0])
+            vec_prev_to_gate = pos -waypoints[-1]
+            vec_prev_to_gate_norm = vec_prev_to_gate / np.linalg.norm(vec_prev_to_gate)
+
+            if i + 1 < len(gates_pos):
+                vec_gate_to_next_gate = gates_pos[i+1] - pos
+                vec_gate_to_next_gate_norm = vec_gate_to_next_gate / np.linalg.norm(vec_gate_to_next_gate)
+            else:   
+                vec_gate_to_next_gate = vec_prev_to_gate    #continue in same direction as bevore
+                vec_gate_to_next_gate_norm = vec_prev_to_gate_norm
+
+            #When to perform a dip
+            cos_theta = np.dot(normal,vec_gate_to_next_gate_norm) # bouth are already normed
+            theta_dec = np.degrees(np.arccos(cos_theta))
+
+            gate_in_dir_vec = gate_in_offset_prev * vec_prev_to_gate_norm
+            gate_out_dir_vec = gate_out_offset_next * vec_gate_to_next_gate_norm
+
+            length_normal_in = np.dot(gate_in_dir_vec, normal)
+            length_normal_out = np.dot(gate_out_dir_vec, normal)
+
+            add_normal_in = length_normal_in - gate_in_offset
+            add_normal_out = gate_out_offset - length_normal_out
+
+            entry = pos - gate_in_dir_vec + add_normal_in * normal
+            if theta_dec < dip_degree:
+                exit_ = pos + gate_out_dir_vec + add_normal_out * normal
+            else:
+                add_normal_out = gate_out_offset + length_normal_out        #alternative computation since distance is opposide direction if theta_dec>90
+                exit_ = pos + gate_out_dir_vec - add_normal_out * normal
+
+            waypoints.append(entry)
+            waypoints.append(pos)
+            waypoints.append(exit_)
+
+        waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
+        
+        self._waypoints = waypoints
+
+    def create_spline(self):
+        """Create spline interpolation for waypoints."""
+        self._t_total = 13  # s
+        t = np.linspace(0, self._t_total, len(self._waypoints))
+
+        cubic_spline = False
+        if cubic_spline:
+            self._des_pos_spline = CubicSpline(t, self._waypoints)
+            self._des_vel_spline = self._des_pos_spline.derivative()
+        else:
+            # k=3 → cubic B-spline
+            bspline = make_interp_spline(t, self._waypoints, k=3)
+            self._des_pos_spline = bspline
+            self._des_vel_spline = bspline.derivative(1)
+
     def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict):
         """Initialize the attitude controller.
 
@@ -52,75 +129,24 @@ class AttitudeController_1(Controller):
             self.kd = np.array([0.2, 0.2, 0.4])
             self.ki_range = np.array([2.0, 2.0, 0.4])
         else:
-            self.kp = np.array([1.2, 1.2, 3.75])
-            self.ki = np.array([0.00, 0.00, 0.00])
+            self.kp = np.array([0.8, 0.8, 2.5])
+            self.ki = np.array([0.05, 0.05, 0.05])
             self.kd = np.array([0.4, 0.4, 0.8])
             self.ki_range = np.array([2.0, 2.0, 0.4])
 
         self.i_error = np.zeros(3)
         self.g = 9.81
 
-        # Same waypoints as in the position controller. Determined by trial and error.
+        self._start_pos = obs["pos"].copy()  # start at current drone position
         
-        """
-        waypoints = np.array(
-            [
-                [-1.5, 0.75, 0.05],
-                [-1.0, 0.55, 0.4],
-                [0.3, 0.35, 0.7],
-                [1.3, -0.15, 0.9],
-                [0.9, 0.7, 1.2],
-                [-0.5, -0.05, 0.7],
-                [-1.2, -0.1, 0.8],
-                [-1.2, -0.1, 1.2],
-                [-0.0, -0.7, 1.2],
-                [0.5, -0.75, 1.2],
-            ]
-        )
-        """
-
-        gate_in_offset = 0.4  # metres along gate normal for entry/exit points — TODO: tune
-        gate_out_offset = 0.4  # metres along gate normal for entry/exit points — TODO: tune
-
-        # --- Build waypoints ---
-        waypoints = [obs["pos"].copy()]  # start at current drone position
-
-        takeoff = obs["pos"].copy()                                                                                                                                                                       
-        takeoff[2] = 0.5  # lift to 0.5m before going anywhere                                                                                                                                            
-        waypoints.append(takeoff)  
-
-        gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
-        gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
-
-        for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
-            normal = R.from_quat(quat).apply([1.0, 0.0, 0.0])
-            entry = pos - gate_in_offset * normal
-            exit_ = pos + gate_out_offset * normal
-            waypoints.append(entry)
-            waypoints.append(pos)
-            waypoints.append(exit_)
-
-        waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
-        
-        self._waypoints = waypoints
-
-        self._t_total = 15  # s
-        t = np.linspace(0, self._t_total, len(waypoints))
-
-        cubic_spline = False
-        smoothness = 1
-        if cubic_spline:
-            self._des_pos_spline = CubicSpline(t, waypoints)
-            self._des_vel_spline = self._des_pos_spline.derivative()
-        else:
-            # k=3 → cubic B-spline
-            bspline = make_interp_spline(t, waypoints, k=3)
-            self._des_pos_spline = bspline
-            self._des_vel_spline = bspline.derivative(1)
-        
+        self.create_waypoints(obs)
+        self.create_spline()
+    
 
         self._tick = 0
         self._finished = False
+
+    
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
@@ -139,6 +165,10 @@ class AttitudeController_1(Controller):
         t = min(self._tick / self._freq, self._t_total)
         if t >= self._t_total:  # Maximum duration reached
             self._finished = True
+
+        #Update splines with current observations
+        self.create_waypoints(obs)
+        self.create_spline()
 
         des_pos = self._des_pos_spline(t)
         des_vel = self._des_vel_spline(t)
