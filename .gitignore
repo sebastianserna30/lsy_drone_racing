@@ -11,6 +11,7 @@ saves
 !devcontainer.json
 **/*.csv
 plots/
+tries/
 c_generated_code/
 /build
 
