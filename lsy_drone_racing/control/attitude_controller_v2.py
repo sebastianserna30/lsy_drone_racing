@@ -208,14 +208,15 @@ class AttitudeController_2(Controller):
     def _replan_if_needed(self, obs: dict[str, NDArray[np.floating]]):
         """Replan when sensor range reveals a gate or obstacle's true position (Level 2)."""
         changed = False
+        distace_threshold = 0.85  # m: distance threshold to consider a gate/obstacle "resolved" by the sensor
         for i in range(len(self._known_gates_pos)):
-            if obs["gates_visited"][i] and not self._gates_resolved[i]:
+            if not self._gates_resolved[i] and np.linalg.norm(obs["pos"] - obs["gates_pos"][i]) < distace_threshold:
                 self._known_gates_pos[i] = obs["gates_pos"][i]
                 self._known_gates_quat[i] = obs["gates_quat"][i]
                 self._gates_resolved[i] = True
                 changed = True
         for i in range(len(self._known_obstacles_pos)):
-            if obs["obstacles_visited"][i] and not self._obstacles_resolved[i]:
+            if not self._obstacles_resolved[i] and np.linalg.norm(obs["pos"] - obs["obstacles_pos"][i]) < distace_threshold:
                 self._known_obstacles_pos[i] = obs["obstacles_pos"][i]
                 self._obstacles_resolved[i] = True
                 changed = True
