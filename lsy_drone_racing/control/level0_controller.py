@@ -43,8 +43,8 @@ class Level0Controller(Controller):
         # --- Build waypoints ---
         waypoints = [obs["pos"].copy()]  # start at current drone position
 
-        takeoff = obs["pos"].copy()                                                                                                                                                                       
-        takeoff[2] = 0.5  # lift to 0.5m before going anywhere                                                                                                                                            
+        takeoff = obs["pos"].copy()                                                        
+        takeoff[2] = 0.5  # lift to 0.5m before going anywhere                                  
         waypoints.append(takeoff)  
 
         gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
@@ -62,7 +62,7 @@ class Level0Controller(Controller):
         self._waypoints = waypoints
 
         print("Waypoints:")                                                                                                                                                                               
-        for i, wp in enumerate(waypoints):                                                                                                                                                                
+        for i, wp in enumerate(waypoints):                                    
             print(f"  {i}: {wp}")   
 
         # Assign timestamps proportional to cumulative distance between waypoints
