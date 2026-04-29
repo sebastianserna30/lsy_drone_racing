@@ -103,6 +103,7 @@ class AttitudeController_1(Controller):
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
         
         self._waypoints = waypoints
+        
 
     def create_spline_old(self):
         """Create spline interpolation for waypoints."""
