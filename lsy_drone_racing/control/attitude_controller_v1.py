@@ -36,40 +36,43 @@ class AttitudeController_1(Controller):
             obs: The current observation containing gate positions and orientations.
         """
         gate_in_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
-        gate_in_offset_prev = 0.10  # metres along vector from previous waypoint 
+        gate_in_offset_prev = 0.10  # metres along vector from previous waypoint
         gate_out_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
-        gate_out_offset_next = 0.10  # metres along vector from previous waypoint 
+        gate_out_offset_next = 0.10  # metres along vector from previous waypoint
 
         dip_degree = 120
 
         point_at_obstacle = [True, True, True, False]
-        obstacle_ind = np.array([1,0,3,0])
-        offset_at_obstacle = np.array([[0.17,-0.17,0.1],[0.2,-0.2,-0.1],[0.1,0.2,0.2],[0,0,0]])
+        obstacle_ind = np.array([1, 0, 3, 0])
+        offset_at_obstacle = np.array(
+            [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
+        )
 
         waypoints = [self._start_pos]
 
-        takeoff = self._start_pos.copy()                                                          
+        takeoff = self._start_pos.copy()
         takeoff += [0.6, -0.1, 0.3]  # lift to offset as fist waypoint
-        waypoints.append(takeoff)  
+        waypoints.append(takeoff)
 
-        gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
+        gates_pos = obs["gates_pos"]  # shape (n_gates, 3)
         gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
 
         for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
             normal = R.from_quat(quat).apply([1.0, 0.0, 0.0])
-            vec_prev_to_gate = pos -waypoints[-1]
+            vec_prev_to_gate = pos - waypoints[-1]
             vec_prev_to_gate_norm = vec_prev_to_gate / np.linalg.norm(vec_prev_to_gate)
 
             if i + 1 < len(gates_pos):
-                vec_gate_to_next_gate = gates_pos[i+1] - pos
-                vec_gate_to_next_gate_norm = (
-                    vec_gate_to_next_gate/np.linalg.norm(vec_gate_to_next_gate))
-            else:   
-                vec_gate_to_next_gate = vec_prev_to_gate    #continue in same direction as bevore
+                vec_gate_to_next_gate = gates_pos[i + 1] - pos
+                vec_gate_to_next_gate_norm = vec_gate_to_next_gate / np.linalg.norm(
+                    vec_gate_to_next_gate
+                )
+            else:
+                vec_gate_to_next_gate = vec_prev_to_gate  # continue in same direction as bevore
                 vec_gate_to_next_gate_norm = vec_prev_to_gate_norm
 
-            #When to perform a dip
-            cos_theta = np.dot(normal,vec_gate_to_next_gate_norm) # bouth are already normed
+            # When to perform a dip
+            cos_theta = np.dot(normal, vec_gate_to_next_gate_norm)  # bouth are already normed
             theta_dec = np.degrees(np.arccos(cos_theta))
 
             gate_in_dir_vec = gate_in_offset_prev * vec_prev_to_gate_norm
@@ -85,8 +88,8 @@ class AttitudeController_1(Controller):
             if theta_dec < dip_degree:
                 exit_ = pos + gate_out_dir_vec + add_normal_out * normal
             else:
-                #alternative computation since distance is opposide direction if theta_dec>90
-                add_normal_out = gate_out_offset + length_normal_out        
+                # alternative computation since distance is opposide direction if theta_dec>90
+                add_normal_out = gate_out_offset + length_normal_out
                 exit_ = pos + gate_out_dir_vec - add_normal_out * normal
 
             waypoints.append(entry)
@@ -95,17 +98,15 @@ class AttitudeController_1(Controller):
 
             if point_at_obstacle[i]:
                 obs_pos = obs["obstacles_pos"][obstacle_ind[i]].copy()
-                obs_pos[2] = exit_[2]           #change x pos to previous waypoint
+                obs_pos[2] = exit_[2]  # change x pos to previous waypoint
 
                 obs_pos = obs_pos + offset_at_obstacle[i]
 
                 waypoints.append(obs_pos)
 
-
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
-        
-        self._waypoints = waypoints
 
+        self._waypoints = waypoints
 
     def create_spline_old(self):
         """Create spline interpolation for waypoints."""
@@ -121,11 +122,11 @@ class AttitudeController_1(Controller):
             bspline = make_interp_spline(t, self._waypoints, k=3)
             self._des_pos_spline = bspline
             self._des_vel_spline = bspline.derivative(1)
-    
+
     def create_spline(self):
         """Create spline interpolation for waypoints."""
         self._t_total = 7.8  # s
-        
+
         # Distance-based timing
         distances = np.linalg.norm(np.diff(self._waypoints, axis=0), axis=1)
         cumulative_dist = np.insert(np.cumsum(distances), 0, 0)
@@ -134,9 +135,9 @@ class AttitudeController_1(Controller):
         cubic_spline = True
         if cubic_spline:
             # Spline with boundary conditions
-            self._des_pos_spline = CubicSpline(t, self._waypoints) 
-            #alternative if drone should start and end with speed 0 
-            #, bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
+            self._des_pos_spline = CubicSpline(t, self._waypoints)
+            # alternative if drone should start and end with speed 0
+            # , bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
             self._des_vel_spline = self._des_pos_spline.derivative()
         else:
             # k=3 → cubic B-spline
@@ -162,19 +163,19 @@ class AttitudeController_1(Controller):
 
         PD_var = 2
         if PD_var == 0:
-            #original
+            # original
             self.kp = np.array([0.4, 0.4, 1.25])
             self.ki = np.array([0.05, 0.05, 0.05])
             self.kd = np.array([0.2, 0.2, 0.4])
             self.ki_range = np.array([2.0, 2.0, 0.4])
         elif PD_var == 1:
-            #good
+            # good
             self.kp = np.array([0.8, 0.8, 2.5])
             self.ki = np.array([0.05, 0.05, 0.05])
             self.kd = np.array([0.4, 0.4, 0.8])
             self.ki_range = np.array([2.0, 2.0, 0.4])
         else:
-            #without PD
+            # without PD
             self.kp = np.array([0.7, 0.7, 2.7])
             self.ki = np.array([0.00, 0.00, 0.00])
             self.kd = np.array([0.4, 0.4, 0.8])
@@ -184,15 +185,12 @@ class AttitudeController_1(Controller):
         self.g = 9.81
 
         self._start_pos = obs["pos"].copy()  # start at current drone position
-        
+
         self.create_waypoints(obs)
         self.create_spline()
-    
 
         self._tick = 0
         self._finished = False
-
-    
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
@@ -212,7 +210,7 @@ class AttitudeController_1(Controller):
         if t >= self._t_total:  # Maximum duration reached
             self._finished = True
 
-        #Update splines with current observations
+        # Update splines with current observations
         self.create_waypoints(obs)
         self.create_spline()
 
