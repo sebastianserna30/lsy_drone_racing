@@ -22,8 +22,8 @@ from scipy.spatial.transform import Rotation as R
 from lsy_drone_racing.control import Controller
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
     from crazyflow import Sim
+    from numpy.typing import NDArray
 
 
 class AttitudeController_1(Controller):
@@ -48,8 +48,8 @@ class AttitudeController_1(Controller):
 
         waypoints = [self._start_pos]
 
-        takeoff = self._start_pos.copy()                                                                                                                                                                       
-        takeoff += [0.6, -0.1, 0.3]  # lift to 0.5m before going anywhere                                                                                                                                            
+        takeoff = self._start_pos.copy()                                                          
+        takeoff += [0.6, -0.1, 0.3]  # lift to offset as fist waypoint
         waypoints.append(takeoff)  
 
         gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
@@ -62,7 +62,8 @@ class AttitudeController_1(Controller):
 
             if i + 1 < len(gates_pos):
                 vec_gate_to_next_gate = gates_pos[i+1] - pos
-                vec_gate_to_next_gate_norm = vec_gate_to_next_gate / np.linalg.norm(vec_gate_to_next_gate)
+                vec_gate_to_next_gate_norm = (
+                    vec_gate_to_next_gate/np.linalg.norm(vec_gate_to_next_gate))
             else:   
                 vec_gate_to_next_gate = vec_prev_to_gate    #continue in same direction as bevore
                 vec_gate_to_next_gate_norm = vec_prev_to_gate_norm
@@ -84,7 +85,8 @@ class AttitudeController_1(Controller):
             if theta_dec < dip_degree:
                 exit_ = pos + gate_out_dir_vec + add_normal_out * normal
             else:
-                add_normal_out = gate_out_offset + length_normal_out        #alternative computation since distance is opposide direction if theta_dec>90
+                #alternative computation since distance is opposide direction if theta_dec>90
+                add_normal_out = gate_out_offset + length_normal_out        
                 exit_ = pos + gate_out_dir_vec - add_normal_out * normal
 
             waypoints.append(entry)
@@ -103,7 +105,7 @@ class AttitudeController_1(Controller):
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
         
         self._waypoints = waypoints
-        
+
 
     def create_spline_old(self):
         """Create spline interpolation for waypoints."""
@@ -132,7 +134,9 @@ class AttitudeController_1(Controller):
         cubic_spline = True
         if cubic_spline:
             # Spline with boundary conditions
-            self._des_pos_spline = CubicSpline(t, self._waypoints) #, bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
+            self._des_pos_spline = CubicSpline(t, self._waypoints) 
+            #alternative if drone should start and end with speed 0 
+            #, bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
             self._des_vel_spline = self._des_pos_spline.derivative()
         else:
             # k=3 → cubic B-spline
