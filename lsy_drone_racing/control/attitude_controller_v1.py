@@ -35,17 +35,21 @@ class AttitudeController_1(Controller):
         Args:
             obs: The current observation containing gate positions and orientations.
         """
-        gate_in_offset = 0.40  # metres along gate normal for entry/exit points — TODO: tune
-        gate_in_offset_prev = 0.3  # metres along vector from previous waypoint 
-        gate_out_offset = 0.40  # metres along gate normal for entry/exit points — TODO: tune
-        gate_out_offset_next = 0.3  # metres along vector from previous waypoint 
+        gate_in_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
+        gate_in_offset_prev = 0.10  # metres along vector from previous waypoint 
+        gate_out_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
+        gate_out_offset_next = 0.10  # metres along vector from previous waypoint 
 
         dip_degree = 120
+
+        point_at_obstacle = [True, True, True, False]
+        obstacle_ind = np.array([1,0,3,0])
+        offset_at_obstacle = np.array([[0.17,-0.17,0.1],[0.2,-0.2,-0.1],[0.1,0.2,0.2],[0,0,0]])
 
         waypoints = [self._start_pos]
 
         takeoff = self._start_pos.copy()                                                                                                                                                                       
-        takeoff[2] = 0.5  # lift to 0.5m before going anywhere                                                                                                                                            
+        takeoff += [0.6, -0.1, 0.3]  # lift to 0.5m before going anywhere                                                                                                                                            
         waypoints.append(takeoff)  
 
         gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
@@ -87,18 +91,47 @@ class AttitudeController_1(Controller):
             waypoints.append(pos)
             waypoints.append(exit_)
 
+            if point_at_obstacle[i]:
+                obs_pos = obs["obstacles_pos"][obstacle_ind[i]].copy()
+                obs_pos[2] = exit_[2]           #change x pos to previous waypoint
+
+                obs_pos = obs_pos + offset_at_obstacle[i]
+
+                waypoints.append(obs_pos)
+
+
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
         
         self._waypoints = waypoints
 
-    def create_spline(self):
+    def create_spline_old(self):
         """Create spline interpolation for waypoints."""
-        self._t_total = 13  # s
+        self._t_total = 10  # s
         t = np.linspace(0, self._t_total, len(self._waypoints))
 
-        cubic_spline = False
+        cubic_spline = True
         if cubic_spline:
             self._des_pos_spline = CubicSpline(t, self._waypoints)
+            self._des_vel_spline = self._des_pos_spline.derivative()
+        else:
+            # k=3 → cubic B-spline
+            bspline = make_interp_spline(t, self._waypoints, k=3)
+            self._des_pos_spline = bspline
+            self._des_vel_spline = bspline.derivative(1)
+    
+    def create_spline(self):
+        """Create spline interpolation for waypoints."""
+        self._t_total = 7.8  # s
+        
+        # Distance-based timing
+        distances = np.linalg.norm(np.diff(self._waypoints, axis=0), axis=1)
+        cumulative_dist = np.insert(np.cumsum(distances), 0, 0)
+        t = self._t_total * cumulative_dist / cumulative_dist[-1]
+
+        cubic_spline = True
+        if cubic_spline:
+            # Spline with boundary conditions
+            self._des_pos_spline = CubicSpline(t, self._waypoints) #, bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
             self._des_vel_spline = self._des_pos_spline.derivative()
         else:
             # k=3 → cubic B-spline
@@ -122,15 +155,23 @@ class AttitudeController_1(Controller):
         drone_params = load_params(config.sim.physics, config.sim.drone_model)
         self.drone_mass = drone_params["mass"]
 
-        original_PID = False
-        if original_PID:
+        PD_var = 2
+        if PD_var == 0:
+            #original
             self.kp = np.array([0.4, 0.4, 1.25])
             self.ki = np.array([0.05, 0.05, 0.05])
             self.kd = np.array([0.2, 0.2, 0.4])
             self.ki_range = np.array([2.0, 2.0, 0.4])
-        else:
+        elif PD_var == 1:
+            #good
             self.kp = np.array([0.8, 0.8, 2.5])
             self.ki = np.array([0.05, 0.05, 0.05])
+            self.kd = np.array([0.4, 0.4, 0.8])
+            self.ki_range = np.array([2.0, 2.0, 0.4])
+        else:
+            #without PD
+            self.kp = np.array([0.7, 0.7, 2.7])
+            self.ki = np.array([0.00, 0.00, 0.00])
             self.kd = np.array([0.4, 0.4, 0.8])
             self.ki_range = np.array([2.0, 2.0, 0.4])
 
