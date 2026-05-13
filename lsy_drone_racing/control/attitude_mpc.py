@@ -23,6 +23,7 @@ from scipy.spatial.transform import Rotation as R
 from lsy_drone_racing.control import Controller
 
 if TYPE_CHECKING:
+    from crazyflow.sim import Sim
     from numpy.typing import NDArray
 
 
