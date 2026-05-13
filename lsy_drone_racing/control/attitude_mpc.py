@@ -304,7 +304,9 @@ class AttitudeMPC(Controller):
         i = min(self._tick, self._tick_max)
 
         # Current setpoint (red sphere)
-        draw_points(sim, self._waypoints_pos[i].reshape(1, -1), rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
+        draw_points(
+            sim, self._waypoints_pos[i].reshape(1, -1), rgba=(1.0, 0.0, 0.0, 1.0), size=0.02
+        )
 
         # Complete spline trajectory (green line)
         trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
