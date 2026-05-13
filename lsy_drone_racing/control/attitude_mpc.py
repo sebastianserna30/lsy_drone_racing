@@ -296,3 +296,20 @@ class AttitudeMPC(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
+
+    def render_callback(self, sim: Sim):
+        """Visualize the desired trajectory and MPC horizon."""
+        from crazyflow.sim.visualize import draw_line, draw_points
+
+        i = min(self._tick, self._tick_max)
+
+        # Current setpoint (red sphere)
+        draw_points(sim, self._waypoints_pos[i].reshape(1, -1), rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
+
+        # Complete spline trajectory (green line)
+        trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
+        draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
+
+        # MPC predicted horizon (orange line)
+        horizon = np.array([self._acados_ocp_solver.get(j, "x")[:3] for j in range(self._N + 1)])
+        draw_line(sim, horizon, rgba=(1.0, 0.5, 0.0, 1.0))
