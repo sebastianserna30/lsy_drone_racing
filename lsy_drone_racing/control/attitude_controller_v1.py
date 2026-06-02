@@ -22,8 +22,8 @@ from scipy.spatial.transform import Rotation as R
 from lsy_drone_racing.control import Controller
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
     from crazyflow import Sim
+    from numpy.typing import NDArray
 
 
 class AttitudeController_1(Controller):
