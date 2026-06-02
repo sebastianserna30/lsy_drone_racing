@@ -1,10 +1,10 @@
-# Level 1
+# Level 0
 
-# | Evaluation Scenario | Randomized Inertial Properties | Randomized Obstacles, Gates | Randomized Tracks | Notes    |
-# | :-----------------: | :----------------------------: | :-------------------------: | :---------------: | :------: |
-# | `level1.toml`       | *Yes*                          | *No*                        | *No*              | Adaptive |
+# | Evaluation Scenario | Randomized Inertial Properties | Randomized Obstacles, Gates | Randomized Tracks | Notes             |
+# | :-----------------: | :----------------------------: | :-------------------------: | :---------------: | :---------------: |
+# | `level0.toml`       | *No*                           | *No*                        | *No*              | Perfect knowledge |
 [controller]
-file = "attitude_controller_v1.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+file = "attitude_mpc.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
 
 [deploy]
 ### Settings only relevant for deployment
@@ -38,7 +38,6 @@ distance = 5.0
 azimuth = 180.0
 elevation = -25.0
 lookat = [0.0, 0.0, 0.0]
-
 
 [env]
 id = "DroneRacing-v0"   # "DroneRacing-v0" for single races, "MultiDroneRacing-v0" for multi-drone races. Each environment also implements a vector-environment for faster training
@@ -99,27 +98,3 @@ fn = "uniform"
 [env.disturbances.dynamics.kwargs]
 minval = [-0.1, -0.1, -0.1]
 maxval = [0.1, 0.1, 0.1]
-
-[env.randomizations.drone_pos]
-fn = "uniform"
-[env.randomizations.drone_pos.kwargs]
-minval = [-0.1, -0.1, 0.0]
-maxval = [0.1, 0.1, 0.02]
-
-[env.randomizations.drone_rpy]
-fn = "uniform"
-[env.randomizations.drone_rpy.kwargs]
-minval = [-0.1, -0.1, -0.1]
-maxval = [0.1, 0.1, 0.1]
-
-[env.randomizations.drone_mass]
-fn = "uniform"
-[env.randomizations.drone_mass.kwargs]
-minval = -0.005
-maxval = 0.005
-
-[env.randomizations.drone_inertia]
-fn = "uniform"
-[env.randomizations.drone_inertia.kwargs]
-minval = [-0.000001, -0.000001, -0.000001]
-maxval = [0.000001, 0.000001, 0.000001]

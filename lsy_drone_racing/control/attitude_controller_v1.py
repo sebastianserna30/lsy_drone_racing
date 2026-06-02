@@ -93,7 +93,7 @@ class AttitudeController_1(Controller):
 
             if point_at_obstacle[i]:
                 obs_pos = obs["obstacles_pos"][obstacle_ind[i]].copy()
-                obs_pos[2] = exit_[2]           #change x pos to previous waypoint
+                obs_pos[2] = exit_[2]  # change z pos to previous waypoint
 
                 obs_pos = obs_pos + offset_at_obstacle[i]
 
@@ -121,8 +121,9 @@ class AttitudeController_1(Controller):
     
     def create_spline(self):
         """Create spline interpolation for waypoints."""
-        self._t_total = 7.8  # s
-        
+        #self._t_total = 7.8  # s Used for submission
+        self._t_total = 11
+
         # Distance-based timing
         distances = np.linalg.norm(np.diff(self._waypoints, axis=0), axis=1)
         cumulative_dist = np.insert(np.cumsum(distances), 0, 0)
@@ -155,21 +156,21 @@ class AttitudeController_1(Controller):
         drone_params = load_params(config.sim.physics, config.sim.drone_model)
         self.drone_mass = drone_params["mass"]
 
-        PD_var = 2
-        if PD_var == 0:
-            #original
+        PID_var = 2
+        if PID_var == 0:
+            # original
             self.kp = np.array([0.4, 0.4, 1.25])
             self.ki = np.array([0.05, 0.05, 0.05])
             self.kd = np.array([0.2, 0.2, 0.4])
             self.ki_range = np.array([2.0, 2.0, 0.4])
-        elif PD_var == 1:
-            #good
+        elif PID_var == 1:
+            # good
             self.kp = np.array([0.8, 0.8, 2.5])
             self.ki = np.array([0.05, 0.05, 0.05])
             self.kd = np.array([0.4, 0.4, 0.8])
             self.ki_range = np.array([2.0, 2.0, 0.4])
         else:
-            #without PD
+            # without I (best)
             self.kp = np.array([0.7, 0.7, 2.7])
             self.ki = np.array([0.00, 0.00, 0.00])
             self.kd = np.array([0.4, 0.4, 0.8])
