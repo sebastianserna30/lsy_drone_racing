@@ -1,0 +1,59 @@
+[drone]
+id = 52
+channel = 80
+model = "cf21B_500"
+pos_landing = [1.5, 1.5, 0.0] # landing position of the drone in global frame
+pos_update_freq = 10 # Hz, frequency for onboard estimator updates
+
+[controller]
+type = "mppi" # mellinger, mppi
+ctrl_freq = 50 # Hz
+[controller.mppi] # MPPI parameters
+N = 25
+T = 1.0 # seconds, control horizon duration. Note that dt = T / horizon
+n_samples = 500_000
+noise_sigma = 0.01 # Initial noise std
+temperature = 0.25
+elite_percentage = 0.01 # Top percent for averaging in [0,1]
+beta = 0.6 # Noise smoothing in [0,1] (no smoothing to max smoothing)
+alpha = 0.1 # weighted variance update weight
+min_variance = 0.02
+K = 5 # means
+
+[experiment]
+pos_trajectory = [0.0, 0.25, 1.05] # position in global frame around which the trajectory is centered
+trajectory = "lissajous" # type of trajectory, e.g., figure8, ellipse, figure8_bent, melon, ...
+plane = "xy" # plane in which the trajectoy lies, e.g., xy, xz. Ignored for 3d trajectories
+scaling = [1.6, 1.6, 0.0] # maximum size in m of the trajectory, [2.0, 0.5, 1.0], [2.0, 1.0, 0.5]
+time = 20 # time per loop of the trajectory
+n_runs = 1 # number of runs
+yaw_mode = "constant" # yaw behavior: constant, velocity, direction
+yaw_setting = 0 # yaw parameter, e.g., for constant: angle in rad, for velocity: rate in rot/T
+soft_start = true # enable/disable soft start
+[experiment.env]
+drone_radius = 0.12  # 86mm + safety margin
+obstacle_radius = 0.055  # 110mm diameter pipes
+obstacle_length = 1.0
+# obstacles = [
+#                 [0.0, 0.75, 0.0],
+#                 [-0.25, 0.25, 0.0],
+#                 [0.25, 0.25, 0.0],
+#                 [-0.5, -0.25, 0.0],
+#                 [0.0, -0.25, 0.0],
+#                 [0.5, -0.25, 0.0],
+#                 [-0.75, -0.75, 0.0],
+#                 [-0.25, -0.75, 0.0],
+#                 [0.25, -0.75, 0.0],
+#                 [0.75, -0.75, 0.0],
+#             ]
+# obstacles = [[-0.07520794123411179, 0.8805340528488159, 0.0], [0.14145463705062866, 1.2774568796157837, 0.0], [-0.2948741614818573, 0.48309341073036194, 0.0], [-1.0720977783203125, 1.3260674476623535, 0.0], [-0.6644514203071594, 1.3062952756881714, 0.0], [-0.6941086649894714, 0.49838078022003174, 0.0], [-0.5059699416160583, 0.09956508129835129, 0.0], [-0.2626776397228241, 1.284072995185852, 0.0], [-0.8813182711601257, 0.9150275588035583, 0.0], [-0.4699365496635437, 0.9062142372131348, 0.0]]
+obstacles = [[-0.5952511429786682, 0.6061187982559204, 0.0], [-0.19837862253189087, 0.5998428463935852, 0.0], [-0.02609270066022873, 0.20298467576503754, 0.0], [-0.2003815621137619, -0.18774467706680298, 0.0], [0.19617629051208496, 0.621827244758606, 0.0], [-0.39951029419898987, 0.20067864656448364, 0.0], [0.40579113364219666, 0.20579855144023895, 0.0], [-0.016219481825828552, -0.59394371509552, 0.0], [0.6024446487426758, 0.6278328895568848, 0.0], [0.20104502141475677, -0.18950968980789185, 0.0]]
+
+[sim]
+physics = "first_principles" #physics model of the sim, e.g., first_principles, so_rpy_rotor_drag
+render = true # enable/disable rendering
+fps = 60
+
+[plot]
+show = false # enable/disable showing plots
+save = true # enable/disable saving plots
