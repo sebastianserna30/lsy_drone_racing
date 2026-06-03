@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 import numpy as np
+from crazyflow.sim.visualize import draw_line, draw_points
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
 from crazyflow.sim.data import SimData
@@ -41,9 +42,12 @@ class AttitudeMPPIController(Controller):
         gate_out_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
         gate_out_offset_next = 0.10  # metres along vector from previous waypoint 
 
+        #dip_degree = 361    #Should not do a dip
         dip_degree = 120
+        gate_centre_offset_dip = 0.2
 
-        point_at_obstacle = [True, True, True, False]
+        #point_at_obstacle = [True, True, True, False]
+        point_at_obstacle = [False, False, False, False]       #No obstacle avoidance
         obstacle_ind = np.array([1,0,3,0])
         offset_at_obstacle = np.array([[0.17,-0.17,0.1],[0.2,-0.2,-0.1],[0.1,0.2,0.2],[0,0,0]])
 
@@ -88,6 +92,10 @@ class AttitudeMPPIController(Controller):
                 add_normal_out = gate_out_offset + length_normal_out        #alternative computation since distance is opposide direction if theta_dec>90
                 exit_ = pos + gate_out_dir_vec - add_normal_out * normal
 
+                #move marker in gate a bit further in
+                pos = np.array(pos, copy=True)
+                pos += normal * gate_centre_offset_dip
+
             waypoints.append(entry)
             waypoints.append(pos)
             waypoints.append(exit_)
@@ -108,7 +116,7 @@ class AttitudeMPPIController(Controller):
     def create_spline(self):
         """Create spline interpolation for waypoints."""
         #self._t_total = 7.8  # s Used for submission
-        self._t_total = 11
+        self._t_total = 5.2
 
         # Distance-based timing
         distances = np.linalg.norm(np.diff(self._waypoints, axis=0), axis=1)
@@ -234,8 +242,10 @@ class AttitudeMPPIController(Controller):
         )
         """
 
-        key = jax.random.PRNGKey(0)
-        key, subkey = random.split(key)
+        #changedOractical
+        #key = jax.random.PRNGKey(0)
+        self._rng_key = jax.random.PRNGKey(0)
+        self._rng_key, subkey = random.split(self._rng_key)
         info_short = {"rng_key": subkey, "obstacles": jnp.array(initial_obs["obstacles_pos"])}
         for i in range(10):
             a = self.compute_control(initial_obs, info_short)  # Warm up the controller
@@ -275,9 +285,13 @@ class AttitudeMPPIController(Controller):
 
         # 1. Update Step
         # Now returns a batch of means and sigmas
+
+        #changedPractical
+        self._rng_key, subkey = jax.random.split(self._rng_key)
+
         new_means, new_sigmas, best_mode_idx, costs_grouped, positions_grouped = (
             self._mppi_core_update(
-                info["rng_key"],
+                subkey,
                 obs_device,
                 refs,
                 self.mean_controls,  # Shape: (K, Horizon, U)
@@ -542,7 +556,9 @@ class AttitudeMPPIController(Controller):
 
         ## 1. State Cost (Tracking)
         pos_error = jnp.linalg.norm(pos - des_pos, axis=-1)
-        pos_cost = pos_error**2 * 10.0
+        #pos_cost = pos_error**2 * 10.0
+        #changedPractical
+        pos_cost = pos_error**2 * 40.0
         z_cost = jnp.abs(pos[..., 2] - des_pos[..., 2]) * 20.0  # Extra penalty for altitude error
         vel_error = jnp.linalg.norm(vel - des_vel, axis=-1)
         vel_cost = vel_error**2 * 1.0
@@ -611,6 +627,22 @@ class AttitudeMPPIController(Controller):
         )
         _, (costs, positions) = scan(self.apply_input, data, infos)
         return jnp.sum(costs, axis=0), positions
+
+
+    #changedPractical
+
+    #own renderings
+    def render_callback(self, sim: Sim):
+            """Visualize the desired trajectory and the current setpoint."""
+            #setpoint = self._des_pos_spline(self._tick / self._freq).reshape(1, -1)
+            setpoint = self._des_pos_spline(self._t).reshape(1, -1)
+            
+            draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
+            trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
+            draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
+
+            draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
+
 
 
 # The following part is just for visualization and should be removed in the future!
