@@ -523,14 +523,14 @@ class AttitudeMPPIController(Controller):
     @partial(jax.jit, static_argnames=["self"])
     def shift_and_interpolate(self, controls, dt_plan, dt_ctrl):
         """Shifts the control trajectory forward by dt_ctrl using linear interpolation.
+        x
+                Args:
+                    controls: Array of shape (Horizon, Control_Dim)
+                    dt_plan: Time duration of one step in the planning horizon
+                    dt_ctrl: Time duration of one control cycle (latency/execution time)
 
-        Args:
-            controls: Array of shape (Horizon, Control_Dim)
-            dt_plan: Time duration of one step in the planning horizon
-            dt_ctrl: Time duration of one control cycle (latency/execution time)
-
-        Returns:
-            Shifted controls of shape (Horizon, Control_Dim)
+                Returns:
+                    Shifted controls of shape (Horizon, Control_Dim)
         """
         horizon_len = controls.shape[0]
 
@@ -551,7 +551,9 @@ class AttitudeMPPIController(Controller):
         return jax.vmap(interp_fn, in_axes=1, out_axes=1)(controls)
 
     @partial(jax.jit, static_argnames=["self"])
-    def compute_cost(self, data: SimData, reference: dict[str, jnp.ndarray], obstacles: jnp.ndarray) -> jnp.ndarray:
+    def compute_cost(
+        self, data: SimData, reference: dict[str, jnp.ndarray], obstacles: jnp.ndarray
+    ) -> jnp.ndarray:
         """Compute the cost for a given state."""
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
         vel = data.states.vel[:, 0, :]  # Shape: (n_rollouts, 3)
@@ -643,136 +645,47 @@ class AttitudeMPPIController(Controller):
 
     # changedPractical
 
-    # own renderings
-    def render_callback(self, sim: Sim):
-        """Visualize the desired trajectory and the current setpoint."""
-        # setpoint = self._des_pos_spline(self._tick / self._freq).reshape(1, -1)
+    def _draw_reference(self, sim: Sim):
+        """Draw the reference spline, current setpoint, and waypoints."""
         setpoint = self._des_pos_spline(self._t).reshape(1, -1)
-
         draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
         trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
         draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
-
         draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
 
+    def _draw_mppi_rollouts(self, sim: Sim):
+        """Draw the top MPPI rollout trajectories per cluster, best in white."""
+        if not hasattr(self, "positions") or self.positions is None:
+            return
 
-# The following part is just for visualization and should be removed in the future!
+        _cluster_colors = [
+            (1.0, 0.5, 0.0),  # orange
+            (0.5, 0.0, 1.0),  # purple
+            (0.0, 1.0, 1.0),  # cyan
+            (1.0, 1.0, 0.0),  # yellow
+            (1.0, 0.0, 0.5),  # pink
+            (0.0, 0.5, 1.0),  # sky blue
+        ]
 
+        positions = np.asarray(self.positions)  # (K, M, N, 3)
+        costs = np.asarray(self.costs)  # (K, M)
+        best_k = int(self.best_mode_idx)
+        n_viz = 5
 
-def create_jax_model(p: dict):
-    """Creates an acados model from a symbolic drone_model."""
-    dyn_fixed = partial(
-        dynamics,  # The original dynamics function definition
-        mass=p["mass"],
-        gravity_vec=p["gravity_vec"],
-        J=p["J"],
-        J_inv=p["J_inv"],
-        thrust_time_coef=p["thrust_time_coef"],
-        acc_coef=p["acc_coef"],
-        cmd_f_coef=p["cmd_f_coef"],
-        rpy_coef=p["rpy_coef"],
-        rpy_rates_coef=p["rpy_rates_coef"],
-        cmd_rpy_coef=p["cmd_rpy_coef"],
-        drag_matrix=p["drag_matrix"],
-    )
+        for k in range(self.K):
+            rgb = _cluster_colors[k % len(_cluster_colors)]
+            sorted_idx = np.argsort(costs[k])[:n_viz]
+            for rank, m in enumerate(sorted_idx):
+                alpha = 1.0 - (rank / n_viz) * 0.75
+                draw_line(sim, positions[k, m], rgba=(*rgb, alpha))
 
-    def dynamics_adapter(x, u, dt):
-        """Adapter to convert state vector x and control u into individual arguments for the dynamics function.
+        best_m = int(np.argmin(costs[best_k]))
+        draw_line(sim, positions[best_k, best_m], rgba=(1.0, 1.0, 1.0, 1.0))
 
-        Assumed x layout (dim 13):
-        0:3   -> pos
-        3:7   -> quat
-        7:10  -> vel
-        10:13 -> ang_vel
-        """
-        # 1. Unpack x into constituent components
-        pos = x[0:3]
-        quat = x[3:7]
-        vel = x[7:10]
-        ang_vel = x[10:13]
-
-        # 2. Call the dynamics function (which will be partial'd below)
-        # We return the derivatives as a tuple, or you can repack them into x_dot here
-
-        pos_dot, quat_dot, vel_dot, ang_vel_dot, rotor_vel_dot = dyn_fixed(
-            pos, quat, vel, ang_vel, u
-        )
-        # x_dot = jnp.concatenate((pos_dot, quat_dot, vel_dot, ang_vel_dot))
-        # x_next = x + x_dot * dt
-        ## jax.debug.print("xdot: {}", x_dot)
-        # quat_next = x_next[3:7]
-        # quat_next = quat_next / jnp.linalg.norm(quat_next)
-        # x_next = x_next.at[3:7].set(quat_next)
-        # 1. Update Standard States (Position, Velocity, Omega)
-        # 1. Integrate Position, Velocity, Angular Velocity (Standard Euler)
-        pos_next = pos + pos_dot * dt
-        vel_next = vel + vel_dot * dt
-        ang_vel_next = ang_vel + ang_vel_dot * dt
-
-        # 2. Integrate Quaternion (Exponential Map for Scalar Last)
-        omega_norm = jnp.linalg.norm(ang_vel)
-
-        # Calculate half-angle
-        half_theta = 0.5 * omega_norm * dt
-
-        # Create Delta Quaternion: dq = [sin(t/2)*u, cos(t/2)]
-        # We handle the limit where omega -> 0 to avoid division by zero
-        scale = jnp.where(
-            omega_norm < 1e-6,
-            0.5 * dt,  # First-order approximation for small angles
-            jnp.sin(half_theta) / omega_norm,
-        )
-
-        # Construct dq in [x, y, z, w] order
-        dq_x = ang_vel[0] * scale
-        dq_y = ang_vel[1] * scale
-        dq_z = ang_vel[2] * scale
-        dq_w = jnp.cos(half_theta)
-
-        # 3. Multiply: q_next = q_current * dq
-        # Extract current components [x, y, z, w]
-        qx, qy, qz, qw = quat
-
-        # Quaternion multiplication formula (Scalar Last)
-        # vector_part = s1*v2 + s2*v1 + cross(v1, v2)
-        # scalar_part = s1*s2 - dot(v1, v2)
-        q_next_x = qw * dq_x + qx * dq_w + qy * dq_z - qz * dq_y
-        q_next_y = qw * dq_y - qx * dq_z + qy * dq_w + qz * dq_x
-        q_next_z = qw * dq_z + qx * dq_y - qy * dq_x + qz * dq_w
-        q_next_w = qw * dq_w - qx * dq_x - qy * dq_y - qz * dq_z
-
-        q_next = jnp.array([q_next_x, q_next_y, q_next_z, q_next_w])
-
-        # 4. Normalize (Crucial)
-        q_next = q_next / jnp.linalg.norm(q_next)
-
-        # 5. Reassemble the state
-        # Assuming the order in x_next is [pos(3), quat(4), vel(3), ang_vel(3)]
-        x_next = jnp.concatenate((pos_next, q_next, vel_next, ang_vel_next))
-        # ang_vel = x_next[10:13]
-        # ang_vel = ang_vel.clip(-1, 1)
-        # x_next.at[10:13].set(ang_vel)
-        # jax.debug.print("clipped ang_vel: {}", ang_vel)
-
-        return x_next
-
-    # Initialize the nonlinear model for NMPC formulation
-
-    return dynamics_adapter
+    # own renderings
+    def render_callback(self, sim: Sim):
+        """Visualize the desired trajectory and the current setpoint."""
+        self._draw_reference(sim)
+        self._draw_mppi_rollouts(sim)
 
 
-drone_model = "cf21B_500"
-drone_params = load_params("so_rpy_rotor_drag", drone_model)
-drone_radius = 0.086
-obstacle_radius = 0.055
-dynamics_step = create_jax_model(drone_params)
-
-
-@jax.jit
-def rollout_fn(state, ctrls, dt):
-    def body(carry, u):
-        n_st = dynamics_step(carry, u, dt)
-        return n_st, n_st
-
-    _, traj = jax.lax.scan(body, state, ctrls)
-    return traj
