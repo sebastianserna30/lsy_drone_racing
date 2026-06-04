@@ -430,7 +430,7 @@ class AttitudeMPPIController(Controller):
         # 2. Reshape to (N, K*M, 4)
         controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, 4)
 
-        costs_flat, positions_flat = self.rollout_sim(obs, (controls_flat, refs))
+        costs_flat, positions_flat = self.rollout_sim(obs, (controls_flat, refs, self.obstacles))
 
         # Reshape costs back to groups: (K, M)
         costs_grouped = costs_flat.reshape(self.K, self.M)
@@ -551,7 +551,7 @@ class AttitudeMPPIController(Controller):
         return jax.vmap(interp_fn, in_axes=1, out_axes=1)(controls)
 
     @partial(jax.jit, static_argnames=["self"])
-    def compute_cost(self, data: SimData, reference: dict[str, jnp.ndarray]) -> jnp.ndarray:
+    def compute_cost(self, data: SimData, reference: dict[str, jnp.ndarray], obstacles: jnp.ndarray) -> jnp.ndarray:
         """Compute the cost for a given state."""
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
         vel = data.states.vel[:, 0, :]  # Shape: (n_rollouts, 3)
@@ -586,7 +586,7 @@ class AttitudeMPPIController(Controller):
         input_cost = tilt_cost + thrust_cost + yaw_cost
 
         ## 3. Obstacle Cost (Safety)
-        obs_diff = jnp.linalg.norm(pos[..., None, :2] - self.obstacles[None, :, :2], axis=-1)
+        obs_diff = jnp.linalg.norm(pos[..., None, :2] - obstacles[None, :, :2], axis=-1)
         obstacle_hits = jnp.where(
             obs_diff
             < self.initial_info["experiment"]["env"]["obstacle_radius"]
@@ -608,7 +608,7 @@ class AttitudeMPPIController(Controller):
             state: Initial state of the sim in the form a dictionary with the last observation.
             input: Input to apply. Shape (N, 4), where N is the number of drones, and 4 is the control dimension (roll, pitch, yaw, thrust).
         """
-        cmd, ref = info
+        cmd, ref, obstacles = info
         # Step sim with input
         data = data.replace(
             controls=data.controls.replace(
@@ -616,12 +616,12 @@ class AttitudeMPPIController(Controller):
             )
         )
         next_data = self.step_fn(data, self.sim.freq // self.sim.control_freq)
-        cost = self.compute_cost(next_data, ref)
+        cost = self.compute_cost(next_data, ref, obstacles)
         return next_data, (cost, next_data.states.pos)
 
     @partial(jax.jit, static_argnames=["self"])
     def rollout_sim(
-        self, obs: dict, infos: tuple[jnp.ndarray, dict[str, jnp.ndarray]]
+        self, obs: dict, infos: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray]
     ) -> jnp.ndarray:
         """Rolls out the sim for scan."""
         data = self.sim.data
@@ -635,7 +635,10 @@ class AttitudeMPPIController(Controller):
                 pos=pos, quat=quat, vel=vel, ang_vel=ang_vel, rotor_vel=rotor_vel
             )
         )
-        _, (costs, positions) = scan(self.apply_input, data, infos)
+        controls_flat, refs, obstacles = infos
+        # scan iterates over axis 0 (N time steps); tile obstacles so each step gets a slice
+        obstacles_tiled = jnp.broadcast_to(obstacles[None], (self.N,) + obstacles.shape)
+        _, (costs, positions) = scan(self.apply_input, data, (controls_flat, refs, obstacles_tiled))
         return jnp.sum(costs, axis=0), positions
 
     # changedPractical
