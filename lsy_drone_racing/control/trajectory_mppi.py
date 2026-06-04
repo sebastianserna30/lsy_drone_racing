@@ -187,7 +187,7 @@ class AttitudeMPPIController(Controller):
             physics=Physics.so_rpy_rotor_drag,
             control=Control.attitude,
             drone_model="cf21B_500",
-            device="gpu",  # TODO get from info #changed to cpu
+            device="cuda",  # TODO get from info
         )
         self.sim.reset()
 
