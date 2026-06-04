@@ -12,9 +12,10 @@ from crazyflow.sim.visualize import draw_line, draw_points
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
 from crazyflow.sim.data import SimData
-#from crazyflow_experiments.sim2real.control.trajectory_generator import (
+
+# from crazyflow_experiments.sim2real.control.trajectory_generator import (
 #    TrajectoryGenerator3DPeriodicMotion,
-#)
+# )
 from drone_models.core import load_params
 from drone_models.so_rpy_rotor_drag import dynamics
 from jax import random, vmap
@@ -29,8 +30,7 @@ if TYPE_CHECKING:
 
 
 class AttitudeMPPIController(Controller):
-
-    #Substitution for trajectory_generator
+    # Substitution for trajectory_generator
     def create_waypoints(self, obs: dict[str, NDArray[np.floating]]):
         """Generate waypoints for racing through gates.
 
@@ -38,42 +38,46 @@ class AttitudeMPPIController(Controller):
             obs: The current observation containing gate positions and orientations.
         """
         gate_in_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
-        gate_in_offset_prev = 0.10  # metres along vector from previous waypoint 
+        gate_in_offset_prev = 0.10  # metres along vector from previous waypoint
         gate_out_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
-        gate_out_offset_next = 0.10  # metres along vector from previous waypoint 
+        gate_out_offset_next = 0.10  # metres along vector from previous waypoint
 
-        #dip_degree = 361    #Should not do a dip
+        # dip_degree = 361    #Should not do a dip
         dip_degree = 120
         gate_centre_offset_dip = 0.2
 
-        #point_at_obstacle = [True, True, True, False]
-        point_at_obstacle = [False, False, False, False]       #No obstacle avoidance
-        obstacle_ind = np.array([1,0,3,0])
-        offset_at_obstacle = np.array([[0.17,-0.17,0.1],[0.2,-0.2,-0.1],[0.1,0.2,0.2],[0,0,0]])
+        # point_at_obstacle = [True, True, True, False]
+        point_at_obstacle = [False, False, False, False]  # No obstacle avoidance
+        obstacle_ind = np.array([1, 0, 3, 0])
+        offset_at_obstacle = np.array(
+            [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
+        )
 
         waypoints = [self._start_pos]
 
-        takeoff = self._start_pos.copy()                                                                                                                                                                       
-        takeoff += [0.6, -0.1, 0.3]  # lift to 0.5m before going anywhere                                                                                                                                            
-        waypoints.append(takeoff)  
+        takeoff = self._start_pos.copy()
+        takeoff += [0.6, -0.1, 0.3]  # lift to 0.5m before going anywhere
+        waypoints.append(takeoff)
 
-        gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
+        gates_pos = obs["gates_pos"]  # shape (n_gates, 3)
         gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
 
         for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
             normal = R.from_quat(quat).apply([1.0, 0.0, 0.0])
-            vec_prev_to_gate = pos -waypoints[-1]
+            vec_prev_to_gate = pos - waypoints[-1]
             vec_prev_to_gate_norm = vec_prev_to_gate / np.linalg.norm(vec_prev_to_gate)
 
             if i + 1 < len(gates_pos):
-                vec_gate_to_next_gate = gates_pos[i+1] - pos
-                vec_gate_to_next_gate_norm = vec_gate_to_next_gate / np.linalg.norm(vec_gate_to_next_gate)
-            else:   
-                vec_gate_to_next_gate = vec_prev_to_gate    #continue in same direction as bevore
+                vec_gate_to_next_gate = gates_pos[i + 1] - pos
+                vec_gate_to_next_gate_norm = vec_gate_to_next_gate / np.linalg.norm(
+                    vec_gate_to_next_gate
+                )
+            else:
+                vec_gate_to_next_gate = vec_prev_to_gate  # continue in same direction as bevore
                 vec_gate_to_next_gate_norm = vec_prev_to_gate_norm
 
-            #When to perform a dip
-            cos_theta = np.dot(normal,vec_gate_to_next_gate_norm) # bouth are already normed
+            # When to perform a dip
+            cos_theta = np.dot(normal, vec_gate_to_next_gate_norm)  # bouth are already normed
             theta_dec = np.degrees(np.arccos(cos_theta))
 
             gate_in_dir_vec = gate_in_offset_prev * vec_prev_to_gate_norm
@@ -89,10 +93,12 @@ class AttitudeMPPIController(Controller):
             if theta_dec < dip_degree:
                 exit_ = pos + gate_out_dir_vec + add_normal_out * normal
             else:
-                add_normal_out = gate_out_offset + length_normal_out        #alternative computation since distance is opposide direction if theta_dec>90
+                add_normal_out = (
+                    gate_out_offset + length_normal_out
+                )  # alternative computation since distance is opposide direction if theta_dec>90
                 exit_ = pos + gate_out_dir_vec - add_normal_out * normal
 
-                #move marker in gate a bit further in
+                # move marker in gate a bit further in
                 pos = np.array(pos, copy=True)
                 pos += normal * gate_centre_offset_dip
 
@@ -108,23 +114,24 @@ class AttitudeMPPIController(Controller):
 
                 waypoints.append(obs_pos)
 
-
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
-        
+
         self._waypoints = waypoints
-    
+
     def create_spline(self):
         """Create spline interpolation for waypoints."""
-        #self._t_total = 7.8  # s Used for submission
-        self._t_total = 5.2
+        # self._t_total = 7.8  # s Used for submission
+        self._t_total = 6.2
 
         # Distance-based timing
         distances = np.linalg.norm(np.diff(self._waypoints, axis=0), axis=1)
         cumulative_dist = np.insert(np.cumsum(distances), 0, 0)
         t = self._t_total * cumulative_dist / cumulative_dist[-1]
-        
+
         # Spline with boundary conditions
-        self._des_pos_spline = CubicSpline(t, self._waypoints) #, bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
+        self._des_pos_spline = CubicSpline(
+            t, self._waypoints
+        )  # , bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
         self._des_vel_spline = self._des_pos_spline.derivative()
         self._des_acc_spline = self._des_vel_spline.derivative()
 
@@ -134,14 +141,15 @@ class AttitudeMPPIController(Controller):
         acc = self._des_acc_spline(times)
 
         # Yaw aligned with velocity direction
-        #Fix yaw to 0
-        #yaw = np.arctan2(vel[:, 1], vel[:, 0])
-        yaw = np.zeros((acc.shape[0],1))
+        # Fix yaw to 0
+        # yaw = np.arctan2(vel[:, 1], vel[:, 0])
+        yaw = np.zeros((acc.shape[0], 1))
 
         return pos, vel, acc, yaw
 
-
-    def __init__(self, initial_obs: dict[str, NDArray[np.floating]], info: dict, initial_info: dict):
+    def __init__(
+        self, initial_obs: dict[str, NDArray[np.floating]], info: dict, initial_info: dict
+    ):
         """Initialize the MPPI controller.
 
         Args:
@@ -168,7 +176,7 @@ class AttitudeMPPIController(Controller):
         self.K = initial_info["controller"]["mppi"]["K"]
         self.M = self.n_samples // self.K  # samples per mode
 
-        #changedPractical
+        # changedPractical
         self._t = 0.0
 
         self.sim = Sim(
@@ -179,7 +187,7 @@ class AttitudeMPPIController(Controller):
             physics=Physics.so_rpy_rotor_drag,
             control=Control.attitude,
             drone_model="cf21B_500",
-            device="cpu",  # TODO get from info #changed to cpu
+            device="gpu",  # TODO get from info #changed to cpu
         )
         self.sim.reset()
 
@@ -199,12 +207,12 @@ class AttitudeMPPIController(Controller):
         self.mean_controls = jnp.zeros((self.K, self.N, 4), device=self.sim.device)
 
         # Shape: (Num_Obstacles, 3)
-        #changedPractical
+        # changedPractical
         self.obstacles = jnp.array(initial_obs["obstacles_pos"], device=self.sim.device)
 
-        #changedPractical
-        #self.low_level_ctrl_freq = initial_info["low_level_ctrl_freq"]
-        #self.drone_params = load_params("first_principles", initial_info["drone_model"])
+        # changedPractical
+        # self.low_level_ctrl_freq = initial_info["low_level_ctrl_freq"]
+        # self.drone_params = load_params("first_principles", initial_info["drone_model"])
         self.drone_params = load_params("first_principles", initial_info["drone"]["model"])
         self.drone_mass = self.drone_params["mass"]
         self.act_low = -jnp.ones(4, device=self.sim.device) * jnp.pi / 2
@@ -213,20 +221,20 @@ class AttitudeMPPIController(Controller):
         self.act_high = self.act_high.at[3].set(self.drone_params["thrust_max"] * 4)
         self.thrust = np.zeros(4)
 
-        #changedPractical
+        # changedPractical
         self._start_pos = initial_obs["pos"].copy()
         self.create_waypoints(initial_obs)
         self.create_spline()
 
         self._finished = False
-        #changedPractical
-        #self._t_start = initial_obs["t"]
+        # changedPractical
+        # self._t_start = initial_obs["t"]
         self._t_start = self._t
-        #self._t_end = initial_info["planner_cycles"] * initial_info["planner_cycle_time"]
+        # self._t_end = initial_info["planner_cycles"] * initial_info["planner_cycle_time"]
         self._t_end = self._t_total
 
         ### Generate trajectory
-        #changedPractical
+        # changedPractical
         """
         Replaced since not pressent (see above)
 
@@ -242,8 +250,8 @@ class AttitudeMPPIController(Controller):
         )
         """
 
-        #changedOractical
-        #key = jax.random.PRNGKey(0)
+        # changedOractical
+        # key = jax.random.PRNGKey(0)
         self._rng_key = jax.random.PRNGKey(0)
         self._rng_key, subkey = random.split(self._rng_key)
         info_short = {"rng_key": subkey, "obstacles": jnp.array(initial_obs["obstacles_pos"])}
@@ -268,13 +276,13 @@ class AttitudeMPPIController(Controller):
 
         obs["rotor_vel"] = self.thrust
         obs_device = {k: jax.device_put(v, self.sim.device) for k, v in obs.items()}
-        #changedPractical
+        # changedPractical
         t = self._t - self._t_start
         if t >= self._t_end:
             self._finished = True
 
-        #changedPractical
-        #des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(t + self.dt_array)
+        # changedPractical
+        # des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(t + self.dt_array)
         des_pos, des_vel, des_acc, des_yaw = self.get_coordinates(t + self.dt_array)
         refs = {
             "pos": jnp.array(des_pos, device=self.sim.device),
@@ -286,7 +294,7 @@ class AttitudeMPPIController(Controller):
         # 1. Update Step
         # Now returns a batch of means and sigmas
 
-        #changedPractical
+        # changedPractical
         self._rng_key, subkey = jax.random.split(self._rng_key)
 
         new_means, new_sigmas, best_mode_idx, costs_grouped, positions_grouped = (
@@ -343,7 +351,7 @@ class AttitudeMPPIController(Controller):
         info: dict | None = None,
     ):
         """Increment the tick counter."""
-        #changedPractical
+        # changedPractical
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
         return self._finished
 
@@ -556,8 +564,8 @@ class AttitudeMPPIController(Controller):
 
         ## 1. State Cost (Tracking)
         pos_error = jnp.linalg.norm(pos - des_pos, axis=-1)
-        #pos_cost = pos_error**2 * 10.0
-        #changedPractical
+        # pos_cost = pos_error**2 * 10.0
+        # changedPractical
         pos_cost = pos_error**2 * 40.0
         z_cost = jnp.abs(pos[..., 2] - des_pos[..., 2]) * 20.0  # Extra penalty for altitude error
         vel_error = jnp.linalg.norm(vel - des_vel, axis=-1)
@@ -580,7 +588,9 @@ class AttitudeMPPIController(Controller):
         ## 3. Obstacle Cost (Safety)
         obs_diff = jnp.linalg.norm(pos[..., None, :2] - self.obstacles[None, :, :2], axis=-1)
         obstacle_hits = jnp.where(
-            obs_diff < self.initial_info["experiment"]["env"]["obstacle_radius"] + self.initial_info["experiment"]["env"]["drone_radius"],
+            obs_diff
+            < self.initial_info["experiment"]["env"]["obstacle_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"],
             1,
             0,
         )
@@ -628,21 +638,19 @@ class AttitudeMPPIController(Controller):
         _, (costs, positions) = scan(self.apply_input, data, infos)
         return jnp.sum(costs, axis=0), positions
 
+    # changedPractical
 
-    #changedPractical
-
-    #own renderings
+    # own renderings
     def render_callback(self, sim: Sim):
-            """Visualize the desired trajectory and the current setpoint."""
-            #setpoint = self._des_pos_spline(self._tick / self._freq).reshape(1, -1)
-            setpoint = self._des_pos_spline(self._t).reshape(1, -1)
-            
-            draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
-            trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
-            draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
+        """Visualize the desired trajectory and the current setpoint."""
+        # setpoint = self._des_pos_spline(self._tick / self._freq).reshape(1, -1)
+        setpoint = self._des_pos_spline(self._t).reshape(1, -1)
 
-            draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
+        draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
+        trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
+        draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
 
+        draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
 
 
 # The following part is just for visualization and should be removed in the future!
