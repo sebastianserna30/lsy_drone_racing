@@ -250,7 +250,7 @@ class AttitudeMPPIController(Controller):
         )
         """
 
-        # changedOractical
+        # changedPractical
         # key = jax.random.PRNGKey(0)
         self._rng_key = jax.random.PRNGKey(0)
         self._rng_key, subkey = random.split(self._rng_key)
