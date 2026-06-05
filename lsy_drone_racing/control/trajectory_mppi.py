@@ -687,5 +687,3 @@ class AttitudeMPPIController(Controller):
         """Visualize the desired trajectory and the current setpoint."""
         self._draw_reference(sim)
         self._draw_mppi_rollouts(sim)
-
-
