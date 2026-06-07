@@ -105,6 +105,8 @@ class AttitudeMPPIController(Controller):
         self.act_high = jnp.ones(4, device=self.sim.device) * jnp.pi / 2
         self.act_high = self.act_high.at[3].set(self.drone_params["thrust_max"] * 4)
         self.thrust = np.zeros(4)
+        self._prev_action = np.array([0.0, 0.0, 0.0, 0.43])  # [roll, pitch, yaw, thrust]
+        self._action_ema = 0.4  # blend: 0.4 * new + 0.6 * prev
 
         # changedPractical
         self._start_pos = initial_obs["pos"].copy()
@@ -231,6 +233,8 @@ class AttitudeMPPIController(Controller):
         self.costs = costs_grouped
         self.positions = positions_grouped
         action = np.asarray(best_action)  # back to CPU
+        action = self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
+        self._prev_action = action
         self.thrust += (
             self.drone_params["thrust_dyn_coef"] * (action[3] - self.thrust) * self.ctrl_dt
         )
