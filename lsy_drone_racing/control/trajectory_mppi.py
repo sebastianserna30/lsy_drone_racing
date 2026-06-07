@@ -111,7 +111,7 @@ class AttitudeMPPIController(Controller):
         # changedPractical
         self._start_pos = initial_obs["pos"].copy()
         self._planner = SplinePlanner(
-            self._start_pos, initial_obs, 6.0,
+            self._start_pos, initial_obs, 5.0,
             obstacles_pos=initial_obs["obstacles_pos"],
             clearance=0.20,
         )
