@@ -88,7 +88,8 @@ class AttitudeMPPIController(Controller):
         self.alpha = initial_info["controller"]["mppi"]["alpha"]
         self.min_variance = initial_info["controller"]["mppi"]["min_variance"]
 
-        self.mean_controls = jnp.zeros((self.K, self.N, 4), device=self.sim.device)
+        _init = jnp.zeros((self.K, self.N, 4), device=self.sim.device)
+        self.mean_controls = _init.at[:, :, 3].set(0.43)
 
         # Shape: (Num_Obstacles, 3)
         # changedPractical
