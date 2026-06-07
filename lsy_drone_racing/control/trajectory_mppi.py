@@ -527,11 +527,11 @@ class AttitudeMPPIController(Controller):
 
         ## 2. Control Cost (Efficiency + Stability)
         # Penalize high tilt (roll/pitch)
-        tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 5.0
+        tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 1.0
         # Penalize thrust deviations from gravity
-        thrust_cost = (cmd[:, 3] - 0.43) ** 2 * 0.0
+        thrust_cost = (cmd[:, 3] - 0.43) ** 2 * 1.0
         # Penalize yaw deviations
-        yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 0.0
+        yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 2.0
         input_cost = tilt_cost + thrust_cost + yaw_cost
 
         ## 3. Obstacle Cost (Safety)
