@@ -112,15 +112,31 @@ def main(log_dir: str = "/tmp/logs"):
     ax_spd.set_xlabel("t (s)")
     ax_spd.set_ylabel("|v| (m/s)")
 
+    def _gate_crossing_times(data: dict) -> list[tuple[int, float, float]]:
+        """Return (gate_idx, t, speed) for each gate passage."""
+        tg, t, vel = data["target_gate"], data["t"], data["vel"]
+        spd = np.linalg.norm(vel, axis=1)
+        crossings = []
+        for step in np.where(np.diff(tg) != 0)[0]:
+            gate_idx = int(tg[step])  # gate just passed
+            crossings.append((gate_idx, float(t[step]), float(spd[step])))
+        return crossings
+
     if mppi is not None:
         spd = np.linalg.norm(mppi["vel"], axis=1)
         ax_spd.plot(mppi["t"], spd, "r-", label="MPPI actual")
         des_spd = np.linalg.norm(mppi["des_vel"], axis=1)
         ax_spd.plot(mppi["t"], des_spd, "g--", alpha=0.7, label="MPPI reference")
+        for gate_idx, t_cross, spd_cross in _gate_crossing_times(mppi):
+            ax_spd.scatter(t_cross, spd_cross, marker="*", s=180, color="red", zorder=5)
+            ax_spd.text(t_cross + 0.04, spd_cross + 0.05, f"G{gate_idx}", fontsize=7, color="red")
 
     if ppo is not None:
         spd = np.linalg.norm(ppo["vel"], axis=1)
         ax_spd.plot(ppo["t"], spd, "m-", label="PPO actual")
+        for gate_idx, t_cross, spd_cross in _gate_crossing_times(ppo):
+            ax_spd.scatter(t_cross, spd_cross, marker="*", s=180, color="purple", zorder=5)
+            ax_spd.text(t_cross + 0.04, spd_cross + 0.05, f"G{gate_idx}", fontsize=7, color="purple")
 
     ax_spd.legend(fontsize=8)
     ax_spd.grid(True, alpha=0.3)

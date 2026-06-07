@@ -115,9 +115,12 @@ class AttitudeMPPIController(Controller):
         # changedPractical
         self._start_pos = initial_obs["pos"].copy()
         self._planner = SplinePlanner(
-            self._start_pos, initial_obs, 5.0,  # changedPractical: was 6.0; faster reference to close speed gap vs PPO
-            obstacles_pos=initial_obs["obstacles_pos"],
-            clearance=0.20,
+            self._start_pos,
+            initial_obs,
+            5.0,  # TODO: tune this to -> try faster laps
+            curvature_weight=0.5,
+            obstacles_pos=None,
+            clearance=0.0,
         )
 
         self._finished = False
@@ -160,9 +163,18 @@ class AttitudeMPPIController(Controller):
 
         if os.getenv("LOG_DRONE_DATA"):
             self._log_buf = {
-                "t": [], "pos": [], "vel": [], "action": [],
-                "des_pos": [], "des_vel": [], "min_cost": [], "target_gate": [],
-                "cost_pos": [], "cost_z": [], "cost_vel": [], "min_obs_dist": [],
+                "t": [],
+                "pos": [],
+                "vel": [],
+                "action": [],
+                "des_pos": [],
+                "des_vel": [],
+                "min_cost": [],
+                "target_gate": [],
+                "cost_pos": [],
+                "cost_z": [],
+                "cost_vel": [],
+                "min_obs_dist": [],
             }
 
     def compute_control(
@@ -257,7 +269,11 @@ class AttitudeMPPIController(Controller):
             _z_err = abs(_pos[2] - _des_p[2])
             _vel_err = np.linalg.norm(obs["vel"] - _des_v)
             _obs_arr = np.asarray(self.obstacles)
-            _min_obs = float(np.min(np.linalg.norm(_pos[:2] - _obs_arr[:, :2], axis=-1))) if len(_obs_arr) else np.inf
+            _min_obs = (
+                float(np.min(np.linalg.norm(_pos[:2] - _obs_arr[:, :2], axis=-1)))
+                if len(_obs_arr)
+                else np.inf
+            )
             self._log_buf["t"].append(self._t)
             self._log_buf["pos"].append(_pos.copy())
             self._log_buf["vel"].append(obs["vel"].copy())
@@ -535,11 +551,17 @@ class AttitudeMPPIController(Controller):
 
         ## 2. Control Cost (Efficiency + Stability)
         # Penalize high tilt (roll/pitch)
-        tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 1.0  # changedPractical: was 5.0; loosened to allow aggressive roll/pitch
+        tilt_cost = (
+            jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 1.0
+        )  # changedPractical: was 5.0; loosened to allow aggressive roll/pitch
         # Penalize thrust deviations from gravity
-        thrust_cost = (cmd[:, 3] - HOVER_THRUST) ** 2 * 1.0  # changedPractical: was 0.0; regularise toward hover thrust
+        thrust_cost = (
+            cmd[:, 3] - HOVER_THRUST
+        ) ** 2 * 1.0  # changedPractical: was 0.0; regularise toward hover thrust
         # Penalize yaw deviations
-        yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 2.0  # changedPractical: was 0.0; added to stabilise yaw oscillation
+        yaw_cost = (
+            cmd[:, 2] - des_yaw
+        ) ** 2 * 2.0  # changedPractical: was 0.0; added to stabilise yaw oscillation
         input_cost = tilt_cost + thrust_cost + yaw_cost
 
         ## 3. Obstacle Cost (Safety)
