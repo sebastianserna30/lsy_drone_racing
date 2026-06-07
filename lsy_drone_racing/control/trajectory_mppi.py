@@ -2,7 +2,9 @@
 
 from __future__ import annotations  # Python 3.10 type hints
 
+import os
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import jax
@@ -22,131 +24,13 @@ from jax import random, vmap
 from jax.lax import scan
 
 from lsy_drone_racing.control import Controller
-from scipy.interpolate import CubicSpline
-from scipy.spatial.transform import Rotation as R
+from lsy_drone_racing.control.spline_planner import SplinePlanner
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 
 class AttitudeMPPIController(Controller):
-    # Substitution for trajectory_generator
-    def create_waypoints(self, obs: dict[str, NDArray[np.floating]]):
-        """Generate waypoints for racing through gates.
-
-        Args:
-            obs: The current observation containing gate positions and orientations.
-        """
-        gate_in_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
-        gate_in_offset_prev = 0.10  # metres along vector from previous waypoint
-        gate_out_offset = 0.23  # metres along gate normal for entry/exit points — TODO: tune
-        gate_out_offset_next = 0.10  # metres along vector from previous waypoint
-
-        # dip_degree = 361    #Should not do a dip
-        dip_degree = 120
-        gate_centre_offset_dip = 0.2
-
-        # point_at_obstacle = [True, True, True, False]
-        point_at_obstacle = [False, False, False, False]  # No obstacle avoidance
-        obstacle_ind = np.array([1, 0, 3, 0])
-        offset_at_obstacle = np.array(
-            [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
-        )
-
-        waypoints = [self._start_pos]
-
-        takeoff = self._start_pos.copy()
-        takeoff += [0.6, -0.1, 0.3]  # lift to 0.5m before going anywhere
-        waypoints.append(takeoff)
-
-        gates_pos = obs["gates_pos"]  # shape (n_gates, 3)
-        gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
-
-        for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
-            normal = R.from_quat(quat).apply([1.0, 0.0, 0.0])
-            vec_prev_to_gate = pos - waypoints[-1]
-            vec_prev_to_gate_norm = vec_prev_to_gate / np.linalg.norm(vec_prev_to_gate)
-
-            if i + 1 < len(gates_pos):
-                vec_gate_to_next_gate = gates_pos[i + 1] - pos
-                vec_gate_to_next_gate_norm = vec_gate_to_next_gate / np.linalg.norm(
-                    vec_gate_to_next_gate
-                )
-            else:
-                vec_gate_to_next_gate = vec_prev_to_gate  # continue in same direction as bevore
-                vec_gate_to_next_gate_norm = vec_prev_to_gate_norm
-
-            # When to perform a dip
-            cos_theta = np.dot(normal, vec_gate_to_next_gate_norm)  # bouth are already normed
-            theta_dec = np.degrees(np.arccos(cos_theta))
-
-            gate_in_dir_vec = gate_in_offset_prev * vec_prev_to_gate_norm
-            gate_out_dir_vec = gate_out_offset_next * vec_gate_to_next_gate_norm
-
-            length_normal_in = np.dot(gate_in_dir_vec, normal)
-            length_normal_out = np.dot(gate_out_dir_vec, normal)
-
-            add_normal_in = length_normal_in - gate_in_offset
-            add_normal_out = gate_out_offset - length_normal_out
-
-            entry = pos - gate_in_dir_vec + add_normal_in * normal
-            if theta_dec < dip_degree:
-                exit_ = pos + gate_out_dir_vec + add_normal_out * normal
-            else:
-                add_normal_out = (
-                    gate_out_offset + length_normal_out
-                )  # alternative computation since distance is opposide direction if theta_dec>90
-                exit_ = pos + gate_out_dir_vec - add_normal_out * normal
-
-                # move marker in gate a bit further in
-                pos = np.array(pos, copy=True)
-                pos += normal * gate_centre_offset_dip
-
-            waypoints.append(entry)
-            waypoints.append(pos)
-            waypoints.append(exit_)
-
-            if point_at_obstacle[i]:
-                obs_pos = obs["obstacles_pos"][obstacle_ind[i]].copy()
-                obs_pos[2] = exit_[2]  # change z pos to previous waypoint
-
-                obs_pos = obs_pos + offset_at_obstacle[i]
-
-                waypoints.append(obs_pos)
-
-        waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
-
-        self._waypoints = waypoints
-
-    def create_spline(self):
-        """Create spline interpolation for waypoints."""
-        # self._t_total = 7.8  # s Used for submission
-        self._t_total = 6.2
-
-        # Distance-based timing
-        distances = np.linalg.norm(np.diff(self._waypoints, axis=0), axis=1)
-        cumulative_dist = np.insert(np.cumsum(distances), 0, 0)
-        t = self._t_total * cumulative_dist / cumulative_dist[-1]
-
-        # Spline with boundary conditions
-        self._des_pos_spline = CubicSpline(
-            t, self._waypoints
-        )  # , bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
-        self._des_vel_spline = self._des_pos_spline.derivative()
-        self._des_acc_spline = self._des_vel_spline.derivative()
-
-    def get_coordinates(self, times):
-        pos = self._des_pos_spline(times)
-        vel = self._des_vel_spline(times)
-        acc = self._des_acc_spline(times)
-
-        # Yaw aligned with velocity direction
-        # Fix yaw to 0
-        # yaw = np.arctan2(vel[:, 1], vel[:, 0])
-        yaw = np.zeros((acc.shape[0], 1))
-
-        return pos, vel, acc, yaw
-
     def __init__(
         self, initial_obs: dict[str, NDArray[np.floating]], info: dict, initial_info: dict
     ):
@@ -223,15 +107,18 @@ class AttitudeMPPIController(Controller):
 
         # changedPractical
         self._start_pos = initial_obs["pos"].copy()
-        self.create_waypoints(initial_obs)
-        self.create_spline()
+        self._planner = SplinePlanner(
+            self._start_pos, initial_obs, 6.0,
+            obstacles_pos=initial_obs["obstacles_pos"],
+            clearance=0.20,
+        )
 
         self._finished = False
         # changedPractical
         # self._t_start = initial_obs["t"]
         self._t_start = self._t
         # self._t_end = initial_info["planner_cycles"] * initial_info["planner_cycle_time"]
-        self._t_end = self._t_total
+        self._t_end = self._planner.t_total
 
         ### Generate trajectory
         # changedPractical
@@ -255,9 +142,18 @@ class AttitudeMPPIController(Controller):
         self._rng_key = jax.random.PRNGKey(0)
         self._rng_key, subkey = random.split(self._rng_key)
         info_short = {"rng_key": subkey, "obstacles": jnp.array(initial_obs["obstacles_pos"])}
+
+        self._log_buf: dict | None = None  # must be set before warmup calls compute_control
         for i in range(10):
             a = self.compute_control(initial_obs, info_short)  # Warm up the controller
             jax.block_until_ready(a)
+
+        if os.getenv("LOG_DRONE_DATA"):
+            self._log_buf = {
+                "t": [], "pos": [], "vel": [], "action": [],
+                "des_pos": [], "des_vel": [], "min_cost": [], "target_gate": [],
+                "cost_pos": [], "cost_z": [], "cost_vel": [], "min_obs_dist": [],
+            }
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict
@@ -281,9 +177,7 @@ class AttitudeMPPIController(Controller):
         if t >= self._t_end:
             self._finished = True
 
-        # changedPractical
-        # des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(t + self.dt_array)
-        des_pos, des_vel, des_acc, des_yaw = self.get_coordinates(t + self.dt_array)
+        des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(t + self.dt_array)
         refs = {
             "pos": jnp.array(des_pos, device=self.sim.device),
             "vel": jnp.array(des_vel, device=self.sim.device),
@@ -339,6 +233,29 @@ class AttitudeMPPIController(Controller):
         self.thrust += (
             self.drone_params["thrust_dyn_coef"] * (action[3] - self.thrust) * self.ctrl_dt
         )
+
+        if self._log_buf is not None:
+            _pos = obs["pos"]
+            _des_p = np.asarray(des_pos[0])
+            _des_v = np.asarray(des_vel[0])
+            _pos_err = np.linalg.norm(_pos - _des_p)
+            _z_err = abs(_pos[2] - _des_p[2])
+            _vel_err = np.linalg.norm(obs["vel"] - _des_v)
+            _obs_arr = np.asarray(self.obstacles)
+            _min_obs = float(np.min(np.linalg.norm(_pos[:2] - _obs_arr[:, :2], axis=-1))) if len(_obs_arr) else np.inf
+            self._log_buf["t"].append(self._t)
+            self._log_buf["pos"].append(_pos.copy())
+            self._log_buf["vel"].append(obs["vel"].copy())
+            self._log_buf["action"].append(action.copy())
+            self._log_buf["des_pos"].append(_des_p)
+            self._log_buf["des_vel"].append(_des_v)
+            self._log_buf["min_cost"].append(float(np.min(np.asarray(self.costs))))
+            self._log_buf["target_gate"].append(int(obs.get("target_gate", -1)))
+            self._log_buf["cost_pos"].append(_pos_err**2 * 40.0)
+            self._log_buf["cost_z"].append(_z_err * 80.0)
+            self._log_buf["cost_vel"].append(_vel_err**2 * 1.0)
+            self._log_buf["min_obs_dist"].append(_min_obs)
+
         return action
 
     def step_callback(
@@ -354,6 +271,26 @@ class AttitudeMPPIController(Controller):
         # changedPractical
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
         return self._finished
+
+    def episode_callback(self):
+        """Save logged data to disk if LOG_DRONE_DATA is set."""
+        if self._log_buf is None or not self._log_buf["t"]:
+            return
+        log_dir = os.getenv("LOG_DRONE_DATA", ".")
+        out_path = (
+            Path(log_dir) / "mppi_data.npz" if not log_dir.endswith(".npz") else Path(log_dir)
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(
+            out_path,
+            **{k: np.array(v) for k, v in self._log_buf.items()},
+            spline=self._planner.get_trajectory(300),
+            waypoints=self._planner.waypoints,
+            gates_pos=self.initial_obs["gates_pos"],
+            gates_quat=self.initial_obs["gates_quat"],
+            obstacles_pos=self.initial_obs["obstacles_pos"],
+        )
+        print(f"[MPPI] Saved {len(self._log_buf['t'])} steps → {out_path}")
 
     @partial(jax.jit, static_argnames=["self"])
     def _mppi_core_update(
@@ -569,7 +506,7 @@ class AttitudeMPPIController(Controller):
         # pos_cost = pos_error**2 * 10.0
         # changedPractical
         pos_cost = pos_error**2 * 40.0
-        z_cost = jnp.abs(pos[..., 2] - des_pos[..., 2]) * 20.0  # Extra penalty for altitude error
+        z_cost = jnp.abs(pos[..., 2] - des_pos[..., 2]) * 80.0  # Extra penalty for altitude error
         vel_error = jnp.linalg.norm(vel - des_vel, axis=-1)
         vel_cost = vel_error**2 * 1.0
         ang_vel_error = jnp.linalg.norm(ang_vel, axis=-1)
@@ -582,9 +519,9 @@ class AttitudeMPPIController(Controller):
         # Penalize high tilt (roll/pitch)
         tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 5.0
         # Penalize thrust deviations from gravity
-        thrust_cost = (cmd[:, 3] - 0.43) ** 2 * 5.0
+        thrust_cost = (cmd[:, 3] - 0.43) ** 2 * 0.0
         # Penalize yaw deviations
-        yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 100.0
+        yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 0.0
         input_cost = tilt_cost + thrust_cost + yaw_cost
 
         ## 3. Obstacle Cost (Safety)
@@ -596,7 +533,7 @@ class AttitudeMPPIController(Controller):
             1,
             0,
         )
-        obstacle_cost = 1000.0 * jnp.sum(obstacle_hits, axis=-1)  # Sum over all obstacles
+        obstacle_cost = 1000.0 * jnp.sum(obstacle_hits, axis=-1)
 
         return state_cost + input_cost + obstacle_cost
 
@@ -647,11 +584,11 @@ class AttitudeMPPIController(Controller):
 
     def _draw_reference(self, sim: Sim):
         """Draw the reference spline, current setpoint, and waypoints."""
-        setpoint = self._des_pos_spline(self._t).reshape(1, -1)
+        setpoint = self._planner.evaluate_pos(self._t).reshape(1, -1)
         draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
-        trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
+        trajectory = self._planner.get_trajectory(100)
         draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
-        draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
+        draw_points(sim, self._planner.waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
 
     def _draw_mppi_rollouts(self, sim: Sim):
         """Draw the top MPPI rollout trajectories per cluster, best in white."""
