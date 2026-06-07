@@ -545,7 +545,10 @@ class AttitudeMPPIController(Controller):
         )
         obstacle_cost = 1000.0 * jnp.sum(obstacle_hits, axis=-1)
 
-        return state_cost + input_cost + obstacle_cost
+        ## 4. Floor penalty — prevents rollouts from sinking into the ground
+        floor_cost = jnp.where(pos[..., 2] < 0.1, (0.1 - pos[..., 2]) ** 2 * 500.0, 0.0)
+
+        return state_cost + input_cost + obstacle_cost + floor_cost
 
     @partial(jax.jit, static_argnames=["self"])
     def apply_input(
