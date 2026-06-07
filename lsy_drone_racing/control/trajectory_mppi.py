@@ -26,6 +26,8 @@ from jax.lax import scan
 from lsy_drone_racing.control import Controller
 from lsy_drone_racing.control.spline_planner import SplinePlanner
 
+HOVER_THRUST = 0.43  # collective thrust (N) that approximately balances gravity for cf21B_500
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -89,7 +91,7 @@ class AttitudeMPPIController(Controller):
         self.min_variance = initial_info["controller"]["mppi"]["min_variance"]
 
         _init = jnp.zeros((self.K, self.N, 4), device=self.sim.device)
-        self.mean_controls = _init.at[:, :, 3].set(0.43)
+        self.mean_controls = _init.at[:, :, 3].set(HOVER_THRUST)
 
         # Shape: (Num_Obstacles, 3)
         # changedPractical
@@ -105,7 +107,7 @@ class AttitudeMPPIController(Controller):
         self.act_high = jnp.ones(4, device=self.sim.device) * jnp.pi / 2
         self.act_high = self.act_high.at[3].set(self.drone_params["thrust_max"] * 4)
         self.thrust = np.zeros(4)
-        self._prev_action = np.array([0.0, 0.0, 0.0, 0.43])  # [roll, pitch, yaw, thrust]
+        self._prev_action = np.array([0.0, 0.0, 0.0, HOVER_THRUST])  # [roll, pitch, yaw, thrust]
         self._action_ema = 0.4  # blend: 0.4 * new + 0.6 * prev
 
         # changedPractical
@@ -529,7 +531,7 @@ class AttitudeMPPIController(Controller):
         # Penalize high tilt (roll/pitch)
         tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 1.0
         # Penalize thrust deviations from gravity
-        thrust_cost = (cmd[:, 3] - 0.43) ** 2 * 1.0
+        thrust_cost = (cmd[:, 3] - HOVER_THRUST) ** 2 * 1.0
         # Penalize yaw deviations
         yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 2.0
         input_cost = tilt_cost + thrust_cost + yaw_cost
