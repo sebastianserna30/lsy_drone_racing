@@ -90,6 +90,7 @@ class AttitudeMPPIController(Controller):
         self.alpha = initial_info["controller"]["mppi"]["alpha"]
         self.min_variance = initial_info["controller"]["mppi"]["min_variance"]
 
+        # changedPractical: initialise thrust channel to hover so MPPI starts from a stable baseline
         _init = jnp.zeros((self.K, self.N, 4), device=self.sim.device)
         self.mean_controls = _init.at[:, :, 3].set(HOVER_THRUST)
 
@@ -107,13 +108,14 @@ class AttitudeMPPIController(Controller):
         self.act_high = jnp.ones(4, device=self.sim.device) * jnp.pi / 2
         self.act_high = self.act_high.at[3].set(self.drone_params["thrust_max"] * 4)
         self.thrust = np.zeros(4)
+        # changedPractical: EMA filter on executed action to damp mode-switching oscillations
         self._prev_action = np.array([0.0, 0.0, 0.0, HOVER_THRUST])  # [roll, pitch, yaw, thrust]
         self._action_ema = 0.4  # blend: 0.4 * new + 0.6 * prev
 
         # changedPractical
         self._start_pos = initial_obs["pos"].copy()
         self._planner = SplinePlanner(
-            self._start_pos, initial_obs, 5.0,
+            self._start_pos, initial_obs, 5.0,  # changedPractical: was 6.0; faster reference to close speed gap vs PPO
             obstacles_pos=initial_obs["obstacles_pos"],
             clearance=0.20,
         )
@@ -152,7 +154,8 @@ class AttitudeMPPIController(Controller):
         for i in range(10):
             a = self.compute_control(initial_obs, info_short)  # Warm up the controller
             jax.block_until_ready(a)
-        # Reset so the first real step queries the spline at t≈0, not t≈0.2
+        # changedPractical: _t_start was set to _t=0.0 above (warmup placeholder); reset it after
+        # warmup so the first real episode step queries the spline at t≈0, not t≈0.2
         self._t_start = self._t
 
         if os.getenv("LOG_DRONE_DATA"):
@@ -184,6 +187,7 @@ class AttitudeMPPIController(Controller):
         if t >= self._t_end:
             self._finished = True
 
+        # changedPractical: clamp query times so rollout never extrapolates past spline end
         query_times = np.clip(t + self.dt_array, 0.0, self._planner.t_total)
         des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(query_times)
         refs = {
@@ -238,6 +242,7 @@ class AttitudeMPPIController(Controller):
         self.costs = costs_grouped
         self.positions = positions_grouped
         action = np.asarray(best_action)  # back to CPU
+        # changedPractical: EMA smoothing to damp inter-step oscillations from mode switching
         action = self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
         self._prev_action = action
         self.thrust += (
@@ -280,6 +285,7 @@ class AttitudeMPPIController(Controller):
         """Increment the tick counter."""
         # changedPractical
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
+        # changedPractical: finish as soon as all gates are passed, not only when spline time expires
         if obs.get("target_gate", 0) == -1:
             self._finished = True
         return self._finished
@@ -529,11 +535,11 @@ class AttitudeMPPIController(Controller):
 
         ## 2. Control Cost (Efficiency + Stability)
         # Penalize high tilt (roll/pitch)
-        tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 1.0
+        tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * 1.0  # changedPractical: was 5.0; loosened to allow aggressive roll/pitch
         # Penalize thrust deviations from gravity
-        thrust_cost = (cmd[:, 3] - HOVER_THRUST) ** 2 * 1.0
+        thrust_cost = (cmd[:, 3] - HOVER_THRUST) ** 2 * 1.0  # changedPractical: was 0.0; regularise toward hover thrust
         # Penalize yaw deviations
-        yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 2.0
+        yaw_cost = (cmd[:, 2] - des_yaw) ** 2 * 2.0  # changedPractical: was 0.0; added to stabilise yaw oscillation
         input_cost = tilt_cost + thrust_cost + yaw_cost
 
         ## 3. Obstacle Cost (Safety)
@@ -548,6 +554,7 @@ class AttitudeMPPIController(Controller):
         obstacle_cost = 1000.0 * jnp.sum(obstacle_hits, axis=-1)
 
         ## 4. Floor penalty — prevents rollouts from sinking into the ground
+        # changedPractical: penalise any rollout state below z=0.1m to deter early liftoff instability
         floor_cost = jnp.where(pos[..., 2] < 0.1, (0.1 - pos[..., 2]) ** 2 * 500.0, 0.0)
 
         return state_cost + input_cost + obstacle_cost + floor_cost
