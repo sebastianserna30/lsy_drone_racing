@@ -278,6 +278,8 @@ class AttitudeMPPIController(Controller):
         """Increment the tick counter."""
         # changedPractical
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
+        if obs.get("target_gate", 0) == -1:
+            self._finished = True
         return self._finished
 
     def episode_callback(self):
