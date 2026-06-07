@@ -150,6 +150,8 @@ class AttitudeMPPIController(Controller):
         for i in range(10):
             a = self.compute_control(initial_obs, info_short)  # Warm up the controller
             jax.block_until_ready(a)
+        # Reset so the first real step queries the spline at t≈0, not t≈0.2
+        self._t_start = self._t
 
         if os.getenv("LOG_DRONE_DATA"):
             self._log_buf = {
@@ -180,7 +182,8 @@ class AttitudeMPPIController(Controller):
         if t >= self._t_end:
             self._finished = True
 
-        des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(t + self.dt_array)
+        query_times = np.clip(t + self.dt_array, 0.0, self._planner.t_total)
+        des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(query_times)
         refs = {
             "pos": jnp.array(des_pos, device=self.sim.device),
             "vel": jnp.array(des_vel, device=self.sim.device),
