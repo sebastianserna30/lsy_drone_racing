@@ -67,7 +67,9 @@ def main(
 
     planner_clean = SplinePlanner(start_pos, obs_dict, t_total=t_total)
     planner_oa = SplinePlanner(
-        start_pos, obs_dict, t_total=t_total,
+        start_pos,
+        obs_dict,
+        t_total=t_total,
         obstacles_pos=obstacles_pos if len(obstacles_pos) else None,
         clearance=clearance,
     )
@@ -92,14 +94,18 @@ def main(
     # PPO reference
     if ppo_pos is not None:
         ax.plot(
-            ppo_pos[:, 0], ppo_pos[:, 1], color="magenta", lw=1.8,
-            label="PPO (optimal)", zorder=3,
+            ppo_pos[:, 0], ppo_pos[:, 1], color="magenta", lw=1.8, label="PPO (optimal)", zorder=3
         )
 
     # Spline without obstacle avoidance (dashed, for comparison)
     ax.plot(
-        spline_clean[:, 0], spline_clean[:, 1], "g--", lw=1.2, alpha=0.5,
-        label="spline (no OA)", zorder=2,
+        spline_clean[:, 0],
+        spline_clean[:, 1],
+        "g--",
+        lw=1.2,
+        alpha=0.5,
+        label="spline (no OA)",
+        zorder=2,
     )
 
     # Spline with obstacle avoidance
@@ -121,8 +127,12 @@ def main(
         p1, p2 = gate_endpoints_2d(gpos, gquat)
         ax.plot([p1[0], p2[0]], [p1[1], p2[1]], "b-", lw=4, solid_capstyle="round", zorder=4)
         ax.annotate(
-            f"G{i}\nz={gpos[2]:.2f}m", gpos[:2],
-            textcoords="offset points", xytext=(6, 4), fontsize=8, color="blue",
+            f"G{i}\nz={gpos[2]:.2f}m",
+            gpos[:2],
+            textcoords="offset points",
+            xytext=(6, 4),
+            fontsize=8,
+            color="blue",
         )
 
     # Obstacles (vertical poles — show XY footprint as circle)
@@ -159,7 +169,8 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--data", default="/tmp/logs/mppi_data.npz",
+        "--data",
+        default="/tmp/logs/mppi_data.npz",
         help="NPZ with gates/obstacles (from a prior sim run)",
     )
     parser.add_argument("--ppo", default="/tmp/logs/ppo_data.npz", help="NPZ with PPO positions")
@@ -173,6 +184,10 @@ if __name__ == "__main__":
     parser.add_argument("--out", default=None, help="Output PNG path")
     args = parser.parse_args()
     main(
-        data=args.data, ppo=args.ppo, t_total=args.t_total,
-        clearance=args.clearance, start=tuple(args.start), out=args.out,
+        data=args.data,
+        ppo=args.ppo,
+        t_total=args.t_total,
+        clearance=args.clearance,
+        start=tuple(args.start),
+        out=args.out,
     )

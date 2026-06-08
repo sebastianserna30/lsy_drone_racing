@@ -83,7 +83,9 @@ class SplinePlanner:
 
     @staticmethod
     def _insert_obstacle_detours(
-        waypoints: np.ndarray, obstacles_pos: np.ndarray, clearance: float,
+        waypoints: np.ndarray,
+        obstacles_pos: np.ndarray,
+        clearance: float,
         trigger_dist: float = 0.25,
     ) -> np.ndarray:
         """Insert a bypass waypoint wherever a segment passes within trigger_dist of an obstacle.
@@ -201,9 +203,7 @@ class SplinePlanner:
         return np.array(waypoints)
 
     @staticmethod
-    def _allocate_times(
-        waypoints: np.ndarray, t_total: float, k: float
-    ) -> np.ndarray:
+    def _allocate_times(waypoints: np.ndarray, t_total: float, k: float) -> np.ndarray:
         """Arc-length + curvature-weighted segment time allocation.
 
         Each segment's time share is proportional to its arc length multiplied by
@@ -310,9 +310,7 @@ class MinSnapPlanner:
         times = np.clip(np.atleast_1d(np.asarray(times, dtype=float)), 0.0, self.t_total)
         out = np.zeros((len(times), 3))
         segs = np.clip(
-            np.searchsorted(self._t_starts, times, side="right") - 1,
-            0,
-            len(self._seg_times) - 1,
+            np.searchsorted(self._t_starts, times, side="right") - 1, 0, len(self._seg_times) - 1
         )
         for i, (t, s) in enumerate(zip(times, segs)):
             t_loc = np.clip(t - self._t_starts[s], 0.0, self._seg_times[s])
@@ -373,9 +371,7 @@ class MinSnapPlanner:
         Q += 1e-8 * np.eye(n_var)
         return Q
 
-    def _constraints(
-        self, wps: np.ndarray, seg_times: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _constraints(self, wps: np.ndarray, seg_times: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Build equality constraint matrix A (n_con × n_var) and RHS b (n_con × 3)."""
         n_seg = len(seg_times)
         N = self._N

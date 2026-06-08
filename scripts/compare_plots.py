@@ -32,16 +32,13 @@ def load(path: Path) -> dict | None:
 def gate_normal(quat_xyzw: np.ndarray) -> np.ndarray:
     """Return the gate's X-axis (normal through the aperture) in world frame."""
     x, y, z, w = quat_xyzw
-    return np.array([
-        1 - 2 * (y * y + z * z),
-        2 * (x * y + w * z),
-        2 * (x * z - w * y),
-    ])
+    return np.array([1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)])
 
 
 def draw_gate(ax: plt.Axes, pos: np.ndarray, quat: np.ndarray, half_size: float = 0.20):
     """Draw a gate as a square ring in 3D."""
     from scipy.spatial.transform import Rotation as R
+
     rot = R.from_quat(quat).as_matrix()
     y_ax = rot[:, 1]
     z_ax = rot[:, 2]
@@ -162,7 +159,11 @@ def main(log_dir: str = "/tmp/logs") -> None:
     for i, gpos in enumerate(gates_pos):
         ax_z.axhline(gpos[2], color="blue", lw=0.7, ls=":", alpha=0.6)
         ax_z.text(
-            0.01, gpos[2] + 0.02, f"G{i}", fontsize=7, color="blue",
+            0.01,
+            gpos[2] + 0.02,
+            f"G{i}",
+            fontsize=7,
+            color="blue",
             transform=ax_z.get_yaxis_transform(),
         )
 
@@ -227,15 +228,22 @@ def main(log_dir: str = "/tmp/logs") -> None:
         for step in np.where(np.diff(tg) != 0)[0]:
             ax_cost.axvline(t[step], color="blue", lw=1, ls="--", alpha=0.5)
             ax_cost.text(
-                t[step] + 0.02, ax_cost.get_ylim()[1] * 0.85, f"→G{tg[step+1]}",
-                fontsize=7, color="blue",
+                t[step] + 0.02,
+                ax_cost.get_ylim()[1] * 0.85,
+                f"→G{tg[step + 1]}",
+                fontsize=7,
+                color="blue",
             )
 
         # Obstacle proximity on secondary axis
         if "min_obs_dist" in mppi:
             ax2 = ax_cost.twinx()
             ax2.plot(
-                t, mppi["min_obs_dist"], color="purple", lw=1.2, ls="--",
+                t,
+                mppi["min_obs_dist"],
+                color="purple",
+                lw=1.2,
+                ls="--",
                 label="nearest obstacle (m)",
             )
             # Collision threshold line
@@ -262,8 +270,7 @@ def main(log_dir: str = "/tmp/logs") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--log-dir", default="/tmp/logs",
-        help="Directory with mppi_data.npz and ppo_data.npz",
+        "--log-dir", default="/tmp/logs", help="Directory with mppi_data.npz and ppo_data.npz"
     )
     args = parser.parse_args()
     main(args.log_dir)

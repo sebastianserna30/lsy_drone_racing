@@ -43,8 +43,10 @@ class AttitudeController_1(Controller):
         dip_degree = 120
 
         point_at_obstacle = [True, True, True, False]
-        obstacle_ind = np.array([1,0,3,0])
-        offset_at_obstacle = np.array([[0.17,-0.17,0.1],[0.2,-0.2,-0.1],[0.1,0.2,0.2],[0,0,0]])
+        obstacle_ind = np.array([1, 0, 3, 0])
+        offset_at_obstacle = np.array(
+            [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
+        )
 
         waypoints = [self._start_pos]
 
@@ -52,25 +54,25 @@ class AttitudeController_1(Controller):
         takeoff += [0.6, -0.1, 0.3]  # lift to 0.5m before going anywhere
         waypoints.append(takeoff)
 
-        gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
+        gates_pos = obs["gates_pos"]  # shape (n_gates, 3)
         gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
 
         for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
             normal = R.from_quat(quat).apply([1.0, 0.0, 0.0])
-            vec_prev_to_gate = pos -waypoints[-1]
+            vec_prev_to_gate = pos - waypoints[-1]
             vec_prev_to_gate_norm = vec_prev_to_gate / np.linalg.norm(vec_prev_to_gate)
 
             if i + 1 < len(gates_pos):
-                vec_gate_to_next_gate = gates_pos[i+1] - pos
-                vec_gate_to_next_gate_norm = (
-                    vec_gate_to_next_gate / np.linalg.norm(vec_gate_to_next_gate)
+                vec_gate_to_next_gate = gates_pos[i + 1] - pos
+                vec_gate_to_next_gate_norm = vec_gate_to_next_gate / np.linalg.norm(
+                    vec_gate_to_next_gate
                 )
             else:
-                vec_gate_to_next_gate = vec_prev_to_gate    #continue in same direction as bevore
+                vec_gate_to_next_gate = vec_prev_to_gate  # continue in same direction as bevore
                 vec_gate_to_next_gate_norm = vec_prev_to_gate_norm
 
-            #When to perform a dip
-            cos_theta = np.dot(normal,vec_gate_to_next_gate_norm) # bouth are already normed
+            # When to perform a dip
+            cos_theta = np.dot(normal, vec_gate_to_next_gate_norm)  # bouth are already normed
             theta_dec = np.degrees(np.arccos(cos_theta))
 
             gate_in_dir_vec = gate_in_offset_prev * vec_prev_to_gate_norm
@@ -101,7 +103,6 @@ class AttitudeController_1(Controller):
 
                 waypoints.append(obs_pos)
 
-
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
 
         self._waypoints = waypoints
@@ -123,7 +124,7 @@ class AttitudeController_1(Controller):
 
     def create_spline(self):
         """Create spline interpolation for waypoints."""
-        #self._t_total = 7.8  # s Used for submission
+        # self._t_total = 7.8  # s Used for submission
         self._t_total = 11
 
         # Distance-based timing
@@ -186,11 +187,8 @@ class AttitudeController_1(Controller):
         self.create_waypoints(obs)
         self.create_spline()
 
-
         self._tick = 0
         self._finished = False
-
-
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
@@ -210,7 +208,7 @@ class AttitudeController_1(Controller):
         if t >= self._t_total:  # Maximum duration reached
             self._finished = True
 
-        #Update splines with current observations
+        # Update splines with current observations
         self.create_waypoints(obs)
         self.create_spline()
 

@@ -246,9 +246,7 @@ class AttitudeMPPIController:
         # or vmap twice. Flattening is easier.
         noise_flat = noise.reshape(-1, self.N, 4)  # (N, H, 4)
 
-        def smooth_scan(
-            carry: jnp.ndarray, x: jnp.ndarray
-        ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        def smooth_scan(carry: jnp.ndarray, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
             new_val = self.beta * carry + (1 - self.beta) * x
             return new_val, new_val
 
@@ -284,10 +282,7 @@ class AttitudeMPPIController:
         # We define a function that updates ONE mean, then vmap it over K
 
         def update_single_mode(
-            k_mean: jnp.ndarray,
-            k_noise: jnp.ndarray,
-            k_costs: jnp.ndarray,
-            k_sigma: jnp.ndarray,
+            k_mean: jnp.ndarray, k_noise: jnp.ndarray, k_costs: jnp.ndarray, k_sigma: jnp.ndarray
         ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             # k_mean: (H, 4)
             # k_noise: (M, H, 4)
@@ -607,14 +602,10 @@ dynamics_step = create_jax_model(drone_params)
 
 
 @jax.jit
-def rollout_fn(
-    state: jnp.ndarray, ctrls: jnp.ndarray, dt: float
-) -> jnp.ndarray:
+def rollout_fn(state: jnp.ndarray, ctrls: jnp.ndarray, dt: float) -> jnp.ndarray:
     """Roll out drone dynamics from state under control sequence ctrls."""
 
-    def body(
-        carry: jnp.ndarray, u: jnp.ndarray
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def body(carry: jnp.ndarray, u: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         n_st = dynamics_step(carry, u, dt)
         return n_st, n_st
 
