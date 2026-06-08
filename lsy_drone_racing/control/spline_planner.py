@@ -38,7 +38,9 @@ class SplinePlanner:
         self.t_total = t_total
         self.waypoints = self._create_waypoints(start_pos, obs)
         if obstacles_pos is not None and len(obstacles_pos) > 0:
-            self.waypoints = self._insert_obstacle_detours(self.waypoints, obstacles_pos, clearance)
+            self.waypoints = self._insert_obstacle_detours(
+                self.waypoints, obstacles_pos, clearance, t_total, curvature_weight
+            )
         t = self._allocate_times(self.waypoints, t_total, curvature_weight)
         self._pos_spline = CubicSpline(
             t, self.waypoints, bc_type=((1, np.zeros(3)), (1, np.zeros(3)))
@@ -82,33 +84,188 @@ class SplinePlanner:
         return float(np.arccos(np.clip(np.dot(v1 / n1, v2 / n2), -1.0, 1.0)))
 
     @staticmethod
+    def _local_min_clearance(
+        p0: np.ndarray,
+        d_xy: np.ndarray,
+        p1: np.ndarray,
+        obs_xy: np.ndarray,
+        n: int = 80,
+    ) -> float:
+        """Min XY distance from a 3-point arc (p0→d_xy→p1) to obs_xy."""
+        pts = np.stack([p0[:2], d_xy, p1[:2]])
+        seg1 = np.linalg.norm(d_xy - p0[:2])
+        seg2 = np.linalg.norm(p1[:2] - d_xy)
+        ts = np.array([0.0, seg1, seg1 + seg2])
+        if ts[-1] < 1e-9:
+            return float(np.linalg.norm(d_xy - obs_xy))
+        cs = CubicSpline(ts, pts, bc_type="not-a-knot")
+        curve = cs(np.linspace(ts[0], ts[-1], n))
+        return float(np.linalg.norm(curve - obs_xy, axis=1).min())
+
+    @staticmethod
+    def _assemble_waypoints(
+        waypoints: np.ndarray,
+        inserts: dict[int, np.ndarray],
+        extra_i: int | None = None,
+        extra_d: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Rebuild the full waypoint array from base waypoints + per-segment detour inserts.
+
+        ``inserts`` maps a segment index ``i`` (between ``waypoints[i]`` and
+        ``waypoints[i+1]``) to the detour point placed there. ``extra_i``/``extra_d``
+        let the caller splice in one *trial* detour without mutating ``inserts`` — used
+        to score candidate angles.
+        """
+        result = [waypoints[0]]
+        for i in range(len(waypoints) - 1):
+            if i in inserts:
+                result.append(inserts[i])
+            elif extra_i is not None and i == extra_i:
+                result.append(extra_d)
+            result.append(waypoints[i + 1])
+        return np.array(result)
+
+    @staticmethod
+    def _find_optimal_detour(
+        waypoints: np.ndarray,
+        seg_i: int,
+        p0: np.ndarray,
+        p1: np.ndarray,
+        obs_xy: np.ndarray,
+        clearance: float,
+        obstacles_pos: np.ndarray,
+        frac_t: float,
+        inserts: dict[int, np.ndarray],
+        t_total: float,
+        k: float,
+        n_angles: int = 72,
+    ) -> np.ndarray:
+        """Search a continuous ring of detour positions and return the best one.
+
+        Candidate positions lie on the clearance circle around the obstacle:
+        ``d(theta) = obs_xy + clearance * [cos theta, sin theta]``. Each candidate is
+        spliced into the *full* waypoint list (including detours already decided for
+        earlier obstacles) and the real cubic spline is rebuilt with the same time
+        allocation the final trajectory uses. The window between ``p0`` and ``p1`` is
+        then sampled and scored by:
+
+        - **loop gate (hard):** progress along the chord ``p0->p1`` must stay monotonic;
+          a spline that bulges out and reverses (the obs1 "loop") is rejected. This is a
+          *global* property of the curve, invisible to a local 3-point arc — which is why
+          earlier local heuristics failed.
+        - **clearance gate (hard):** the sampled curve must stay >= ``clearance`` from the
+          avoided obstacle and clear of every other obstacle.
+        - **smoothness objective (soft):** among feasible candidates, minimise the
+          integral of squared curvature plus a small path-length penalty.
+
+        No per-obstacle rules, no turn-angle threshold: obs1 picks the south side because
+        the north side loops; obs3 picks the north side because the south side violates
+        clearance. Both fall out of the same gates. If nothing is feasible, fall back to
+        the candidate with the largest min-clearance (never crashes — MPPI's collision
+        cost is the final backstop).
+        """
+        seg_xy = p1[:2] - p0[:2]
+        seg_len = np.linalg.norm(seg_xy)
+        seg_dir = seg_xy / seg_len
+        detour_z = float(p0[2] + frac_t * (p1[2] - p0[2]))
+
+        # Index of p0 in the assembled list — the trial detour sits at idx_p0+1, p1 at +2.
+        idx_p0 = seg_i + sum(1 for key in inserts if key < seg_i)
+
+        other_obs = [
+            o[:2] for o in obstacles_pos if np.linalg.norm(o[:2] - obs_xy) > 1e-6
+        ]
+
+        best: tuple[float, np.ndarray] | None = None      # (objective, detour)
+        fallback: tuple[float, np.ndarray] | None = None  # (min_clear, detour)
+
+        # Sweep angle (full ring) and a few radii. The radius freedom lets a side stay
+        # smooth where the tight radius=clearance position would loop — this is what
+        # removes the left/right flip across the clearance slider.
+        radii = clearance * np.array([1.0, 1.25, 1.5])
+        for a in range(n_angles):
+            theta = 2.0 * np.pi * a / n_angles
+            direction = np.array([np.cos(theta), np.sin(theta)])
+            for r in radii:
+                d_xy = obs_xy + r * direction
+                # Track bounds — infeasible if the detour leaves the arena.
+                if not (-2.5 <= d_xy[0] <= 2.5 and -1.5 <= d_xy[1] <= 1.5):
+                    continue
+                detour = np.array([d_xy[0], d_xy[1], detour_z])
+
+                wps = SplinePlanner._assemble_waypoints(waypoints, inserts, seg_i, detour)
+                t = SplinePlanner._allocate_times(wps, t_total, k)
+                spline = CubicSpline(t, wps, bc_type=((1, np.zeros(3)), (1, np.zeros(3))))
+
+                ts = np.linspace(t[idx_p0], t[idx_p0 + 2], 120)
+                pos = spline(ts)[:, :2]
+
+                # clearance against the avoided obstacle and any others
+                d_avoid = float(np.linalg.norm(pos - obs_xy, axis=1).min())
+                d_other = min(
+                    (float(np.linalg.norm(pos - o, axis=1).min()) for o in other_obs),
+                    default=np.inf,
+                )
+
+                # loop gate: chord progress must not reverse
+                s = (pos - p0[:2]) @ seg_dir
+                backstep = float(-np.diff(s).min())  # largest backward step (>0 = reversal)
+                looped = backstep > 0.02 * seg_len
+
+                feasible = (
+                    d_avoid >= clearance * 0.92
+                    and d_other >= max(0.18, clearance * 0.7)
+                    and not looped
+                )
+
+                if feasible:
+                    vel = spline.derivative(1)(ts)[:, :2]
+                    acc = spline.derivative(2)(ts)[:, :2]
+                    speed = np.linalg.norm(vel, axis=1)
+                    cross = np.abs(vel[:, 0] * acc[:, 1] - vel[:, 1] * acc[:, 0])
+                    curv = cross / np.clip(speed**3, 1e-6, None)
+                    arclen = float(np.sum(np.linalg.norm(np.diff(pos, axis=0), axis=1)))
+                    obj = float(np.trapezoid(curv**2, ts)) + 0.3 * arclen
+                    if best is None or obj < best[0]:
+                        best = (obj, detour)
+                else:
+                    mc = min(d_avoid, d_other)
+                    if fallback is None or mc > fallback[0]:
+                        fallback = (mc, detour)
+
+        if best is not None:
+            return best[1]
+        return fallback[1]  # type: ignore[union-attr]  # always set if loop ran
+
+    @staticmethod
     def _insert_obstacle_detours(
         waypoints: np.ndarray,
         obstacles_pos: np.ndarray,
         clearance: float,
+        t_total: float,
+        curvature_weight: float,
         trigger_dist: float = 0.25,
     ) -> np.ndarray:
         """Insert a bypass waypoint wherever a segment passes within trigger_dist of an obstacle.
 
         Obstacle avoidance is purely in the XY plane (obstacles are vertical poles).
         trigger_dist: how close the segment must come to an obstacle to trigger a detour.
-        clearance: distance from obstacle center to the detour waypoint.
-        Direction: both sides of the segment are tried. The side with the smaller turn angle
-        is preferred, UNLESS that side is nearly collinear (<5°) with the segment — meaning
-        the detour barely deviates and isn't a real avoidance. In that case the other side is used.
-        One detour per obstacle maximum.
+        clearance: minimum distance from obstacle center to the detoured curve.
+        Direction and exact placement come from :meth:`_find_optimal_detour`, which
+        searches a full ring of candidate positions and scores each by rebuilding the
+        real spline — no fixed angle/side rules, stable across the clearance range.
+        One detour per obstacle maximum. Obstacles are processed in path order so each
+        detour's score sees the detours already committed earlier on the path.
         """
-        detoured = set()
-        result = [waypoints[0]]
+        detoured: set[int] = set()
+        inserts: dict[int, np.ndarray] = {}
         for i in range(len(waypoints) - 1):
             p0, p1 = waypoints[i], waypoints[i + 1]
             seg_xy = p1[:2] - p0[:2]
             seg_len = np.linalg.norm(seg_xy)
             if seg_len < 0.15:
-                result.append(p1)
                 continue
             seg_dir = seg_xy / seg_len
-            perp = np.array([-seg_dir[1], seg_dir[0]])  # CCW (left) perpendicular
 
             best_obs, best_dist, best_t, best_j = None, np.inf, 0.5, -1
             for j, obs in enumerate(obstacles_pos):
@@ -123,22 +280,13 @@ class SplinePlanner:
                     best_dist, best_obs, best_t, best_j = dist, obs, t, j
 
             if best_obs is not None:
-                d_left = best_obs[:2] + perp * clearance
-                d_right = best_obs[:2] - perp * clearance
-                al = SplinePlanner._turn_angle(d_left, p0, p1)
-                ar = SplinePlanner._turn_angle(d_right, p0, p1)
-                # If the smoother side is nearly collinear it doesn't actually avoid the
-                # obstacle — switch to the other side which routes around it.
-                if min(al, ar) < np.radians(5.0):
-                    detour_xy = d_right if al < ar else d_left
-                else:
-                    detour_xy = d_left if al <= ar else d_right
-                detour_z = p0[2] + best_t * (p1[2] - p0[2])
-                result.append(np.array([detour_xy[0], detour_xy[1], detour_z]))
+                inserts[i] = SplinePlanner._find_optimal_detour(
+                    waypoints, i, p0, p1, best_obs[:2], clearance,
+                    obstacles_pos, best_t, inserts, t_total, curvature_weight,
+                )
                 detoured.add(best_j)
 
-            result.append(p1)
-        return np.array(result)
+        return SplinePlanner._assemble_waypoints(waypoints, inserts)
 
     @staticmethod
     def _create_waypoints(start_pos: np.ndarray, obs: dict) -> np.ndarray:
