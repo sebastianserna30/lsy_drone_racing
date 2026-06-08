@@ -6,16 +6,17 @@ on waypoint/detour logic and immediately see the result.
 
 Usage:
     pixi run python scripts/plot_spline_2d.py
-    pixi run python scripts/plot_spline_2d.py --data /tmp/logs/mppi_data.npz --ppo /tmp/logs/ppo_data.npz
+    pixi run python scripts/plot_spline_2d.py --data /tmp/logs/mppi_data.npz
+                                              --ppo /tmp/logs/ppo_data.npz
 """
 
 from __future__ import annotations
 
-import os
-os.environ.setdefault("SCIPY_ARRAY_API", "1")  # must be set before scipy is imported
-
 import argparse
+import os
 from pathlib import Path
+
+os.environ.setdefault("SCIPY_ARRAY_API", "1")  # must be set before scipy is imported
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,7 +24,9 @@ from matplotlib.patches import Circle
 from scipy.spatial.transform import Rotation
 
 
-def gate_endpoints_2d(pos: np.ndarray, quat: np.ndarray, half_width: float = 0.20):
+def gate_endpoints_2d(
+    pos: np.ndarray, quat: np.ndarray, half_width: float = 0.20
+) -> tuple[np.ndarray, np.ndarray]:
     """Return the two endpoints of the gate opening projected onto the XY plane."""
     rot = Rotation.from_quat(quat).as_matrix()
     gate_y_world = rot[:, 1]  # gate Y-axis = width direction
@@ -41,12 +44,15 @@ def main(
     clearance: float = 0.20,
     start: tuple[float, float, float] = (-1.5, 0.75, 0.01),
     out: str | None = None,
-):
+) -> None:
+    """Plot a top-down 2D view of the spline trajectory versus the PPO reference path."""
     data_path = Path(data)
     ppo_path = Path(ppo)
 
     if not data_path.exists():
-        raise FileNotFoundError(f"Data file not found: {data_path}. Run a sim with LOG_DRONE_DATA first.")
+        raise FileNotFoundError(
+            f"Data file not found: {data_path}. Run a sim with LOG_DRONE_DATA first."
+        )
 
     d = np.load(data_path, allow_pickle=False)
     gates_pos = d["gates_pos"]
@@ -85,10 +91,16 @@ def main(
 
     # PPO reference
     if ppo_pos is not None:
-        ax.plot(ppo_pos[:, 0], ppo_pos[:, 1], color="magenta", lw=1.8, label="PPO (optimal)", zorder=3)
+        ax.plot(
+            ppo_pos[:, 0], ppo_pos[:, 1], color="magenta", lw=1.8,
+            label="PPO (optimal)", zorder=3,
+        )
 
     # Spline without obstacle avoidance (dashed, for comparison)
-    ax.plot(spline_clean[:, 0], spline_clean[:, 1], "g--", lw=1.2, alpha=0.5, label="spline (no OA)", zorder=2)
+    ax.plot(
+        spline_clean[:, 0], spline_clean[:, 1], "g--", lw=1.2, alpha=0.5,
+        label="spline (no OA)", zorder=2,
+    )
 
     # Spline with obstacle avoidance
     ax.plot(spline_oa[:, 0], spline_oa[:, 1], "g-", lw=2.0, label="spline (with OA)", zorder=3)
@@ -118,7 +130,9 @@ def main(
     for j, obs in enumerate(obstacles_pos):
         circ = Circle(obs[:2], radius=0.10, color="red", alpha=0.35, zorder=4)
         ax.add_patch(circ)
-        ax.annotate(f"O{j}", obs[:2], textcoords="offset points", xytext=(4, 4), fontsize=8, color="red")
+        ax.annotate(
+            f"O{j}", obs[:2], textcoords="offset points", xytext=(4, 4), fontsize=8, color="red"
+        )
         if not obs_drawn:
             ax.scatter(*obs[:2], c="red", s=0, label="obstacle (r=0.10m)")  # for legend
             obs_drawn = True
@@ -130,9 +144,9 @@ def main(
     # Deduplicate legend entries
     handles, labels = ax.get_legend_handles_labels()
     seen = {}
-    for h, l in zip(handles, labels):
-        if l not in seen:
-            seen[l] = h
+    for h, lbl in zip(handles, labels):
+        if lbl not in seen:
+            seen[lbl] = h
     ax.legend(seen.values(), seen.keys(), fontsize=8, loc="upper left")
 
     plt.tight_layout()
@@ -144,11 +158,18 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="/tmp/logs/mppi_data.npz", help="NPZ with gates/obstacles (from a prior sim run)")
+    parser.add_argument(
+        "--data", default="/tmp/logs/mppi_data.npz",
+        help="NPZ with gates/obstacles (from a prior sim run)",
+    )
     parser.add_argument("--ppo", default="/tmp/logs/ppo_data.npz", help="NPZ with PPO positions")
     parser.add_argument("--t-total", type=float, default=6.0, help="Spline total time budget")
-    parser.add_argument("--clearance", type=float, default=0.20, help="Obstacle detour clearance (m)")
-    parser.add_argument("--start", type=float, nargs=3, default=[-1.5, 0.75, 0.01], metavar=("X","Y","Z"))
+    parser.add_argument(
+        "--clearance", type=float, default=0.20, help="Obstacle detour clearance (m)"
+    )
+    parser.add_argument(
+        "--start", type=float, nargs=3, default=[-1.5, 0.75, 0.01], metavar=("X", "Y", "Z")
+    )
     parser.add_argument("--out", default=None, help="Output PNG path")
     args = parser.parse_args()
     main(

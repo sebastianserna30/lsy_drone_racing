@@ -10,16 +10,14 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 import numpy as np
-from crazyflow.sim.visualize import draw_line, draw_points
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
-from crazyflow.sim.data import SimData
+from crazyflow.sim.visualize import draw_line, draw_points
 
 # from crazyflow_experiments.sim2real.control.trajectory_generator import (
 #    TrajectoryGenerator3DPeriodicMotion,
 # )
 from drone_models.core import load_params
-from drone_models.so_rpy_rotor_drag import dynamics
 from jax import random, vmap
 from jax.lax import scan
 
@@ -29,10 +27,13 @@ from lsy_drone_racing.control.spline_planner import SplinePlanner
 HOVER_THRUST = 0.43  # collective thrust (N) that approximately balances gravity for cf21B_500
 
 if TYPE_CHECKING:
+    from crazyflow.sim.data import SimData
     from numpy.typing import NDArray
 
 
 class AttitudeMPPIController(Controller):
+    """Multi-modal MPPI attitude controller for drone racing."""
+
     def __init__(
         self, initial_obs: dict[str, NDArray[np.floating]], info: dict, initial_info: dict
     ):
@@ -297,11 +298,11 @@ class AttitudeMPPIController(Controller):
         terminated: bool | None = None,
         truncated: bool | None = None,
         info: dict | None = None,
-    ):
+    ) -> bool:
         """Increment the tick counter."""
         # changedPractical
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
-        # changedPractical: finish as soon as all gates are passed, not only when spline time expires
+        # changedPractical: finish when all gates are passed, not only when spline time expires
         if obs.get("target_gate", 0) == -1:
             self._finished = True
         return self._finished
@@ -329,13 +330,13 @@ class AttitudeMPPIController(Controller):
     @partial(jax.jit, static_argnames=["self"])
     def _mppi_core_update(
         self,
-        key,
+        key: jax.Array,
         obs: dict[str, jnp.ndarray],
         refs: dict[str, jnp.ndarray],
-        current_means,
-        noise_sigmas,
-    ):
-        """Internal MPPI update function that performs sampling, rollouts, cost evaluation, and mean updates.
+        current_means: jnp.ndarray,
+        noise_sigmas: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Internal MPPI update: sample, roll out, evaluate costs, update means.
 
         current_means: (K, Horizon, 4) - K different control strategies
         noise_sigmas: (K, Horizon, 4) - Adaptive variance for each strategy
@@ -353,7 +354,13 @@ class AttitudeMPPIController(Controller):
         # We need separate keys for each cluster to ensure independence
         keys = jax.random.split(key, self.K)
 
-        def sample_per_mean(k_key, k_mean, k_sigma, k_lb, k_ub):
+        def sample_per_mean(
+            k_key: jax.Array,
+            k_mean: jnp.ndarray,
+            k_sigma: jnp.ndarray,
+            k_lb: jnp.ndarray,
+            k_ub: jnp.ndarray,
+        ) -> jnp.ndarray:
             # Generate noise for ONE mean
             # Shape: (M, Horizon, 4)
             k_noise = self.get_truncated_normal_jax(
@@ -375,7 +382,9 @@ class AttitudeMPPIController(Controller):
         # or vmap twice. Flattening is easier.
         noise_flat = noise.reshape(-1, self.N, 4)  # (N, H, 4)
 
-        def smooth_scan(carry, x):
+        def smooth_scan(
+            carry: jnp.ndarray, x: jnp.ndarray
+        ) -> tuple[jnp.ndarray, jnp.ndarray]:
             new_val = self.beta * carry + (1 - self.beta) * x
             return new_val, new_val
 
@@ -410,7 +419,12 @@ class AttitudeMPPIController(Controller):
         # --- 5. PER-MODE UPDATE (The Core Logic) ---
         # We define a function that updates ONE mean, then vmap it over K
 
-        def update_single_mode(k_mean, k_noise, k_costs, k_sigma):
+        def update_single_mode(
+            k_mean: jnp.ndarray,
+            k_noise: jnp.ndarray,
+            k_costs: jnp.ndarray,
+            k_sigma: jnp.ndarray,
+        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             # k_mean: (H, 4)
             # k_noise: (M, H, 4)
             # k_costs: (M,)
@@ -466,7 +480,15 @@ class AttitudeMPPIController(Controller):
 
         return updated_means, updated_sigmas, best_mode_idx, costs_grouped, positions_grouped
 
-    def get_truncated_normal_jax(self, key, mean, sd, x_min, x_max, shape=(1,)):
+    def get_truncated_normal_jax(
+        self,
+        key: jax.Array,
+        mean: jnp.ndarray,
+        sd: jnp.ndarray,
+        x_min: jnp.ndarray,
+        x_max: jnp.ndarray,
+        shape: tuple = (1,),
+    ) -> jnp.ndarray:
         """Samples from a truncated normal distribution using JAX.
 
         Args:
@@ -492,16 +514,18 @@ class AttitudeMPPIController(Controller):
         return (standard_samples * sd) + mean
 
     @partial(jax.jit, static_argnames=["self"])
-    def shift_and_interpolate(self, controls, dt_plan, dt_ctrl):
-        """Shifts the control trajectory forward by dt_ctrl using linear interpolation.
-        x
-                Args:
-                    controls: Array of shape (Horizon, Control_Dim)
-                    dt_plan: Time duration of one step in the planning horizon
-                    dt_ctrl: Time duration of one control cycle (latency/execution time)
+    def shift_and_interpolate(
+        self, controls: jnp.ndarray, dt_plan: float, dt_ctrl: float
+    ) -> jnp.ndarray:
+        """Shift the control trajectory forward by dt_ctrl using linear interpolation.
 
-                Returns:
-                    Shifted controls of shape (Horizon, Control_Dim)
+        Args:
+            controls: Array of shape (Horizon, Control_Dim).
+            dt_plan: Time duration of one step in the planning horizon.
+            dt_ctrl: Time duration of one control cycle (latency/execution time).
+
+        Returns:
+            Shifted controls of shape (Horizon, Control_Dim).
         """
         horizon_len = controls.shape[0]
 
@@ -513,7 +537,7 @@ class AttitudeMPPIController(Controller):
         target_times = old_times + dt_ctrl
 
         # Define the 1D interpolation logic
-        def interp_fn(y):
+        def interp_fn(y: jnp.ndarray) -> jnp.ndarray:
             # right=y[-1] implements Zero-Order Hold for the end of the horizon
             return jnp.interp(target_times, old_times, y, left=y[0], right=y[-1])
 
@@ -576,7 +600,7 @@ class AttitudeMPPIController(Controller):
         obstacle_cost = 1000.0 * jnp.sum(obstacle_hits, axis=-1)
 
         ## 4. Floor penalty — prevents rollouts from sinking into the ground
-        # changedPractical: penalise any rollout state below z=0.1m to deter early liftoff instability
+        # changedPractical: penalise rollout states below z=0.1m, deters early liftoff instability
         floor_cost = jnp.where(pos[..., 2] < 0.1, (0.1 - pos[..., 2]) ** 2 * 500.0, 0.0)
 
         return state_cost + input_cost + obstacle_cost + floor_cost
@@ -585,11 +609,11 @@ class AttitudeMPPIController(Controller):
     def apply_input(
         self, data: SimData, info: tuple[jnp.ndarray, dict[str, jnp.ndarray]]
     ) -> tuple[SimData, jnp.ndarray]:
-        """Rolls out the sim.
+        """Roll out the sim for one step.
 
         Args:
-            state: Initial state of the sim in the form a dictionary with the last observation.
-            input: Input to apply. Shape (N, 4), where N is the number of drones, and 4 is the control dimension (roll, pitch, yaw, thrust).
+            data: Initial sim state.
+            info: Tuple of (cmd, ref, obstacles).
         """
         cmd, ref, obstacles = info
         # Step sim with input

@@ -34,6 +34,7 @@ class SplinePlanner:
         obstacles_pos: np.ndarray | None = None,
         clearance: float = 0.35,
     ):
+        """Build waypoints and fit a cubic spline through the race track."""
         self.t_total = t_total
         self.waypoints = self._create_waypoints(start_pos, obs)
         if obstacles_pos is not None and len(obstacles_pos) > 0:
@@ -52,6 +53,7 @@ class SplinePlanner:
     def get_coordinates(
         self, times: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return pos, vel, acc, yaw arrays evaluated at the given times."""
         pos = self._pos_spline(times)
         vel = self._vel_spline(times)
         acc = self._acc_spline(times)
@@ -59,9 +61,11 @@ class SplinePlanner:
         return pos, vel, acc, yaw
 
     def evaluate_pos(self, t: float) -> np.ndarray:
+        """Return the position at scalar time t."""
         return self._pos_spline(t)
 
     def get_trajectory(self, n: int = 100) -> np.ndarray:
+        """Return n evenly-spaced positions along the full trajectory."""
         return self._pos_spline(np.linspace(0, self.t_total, n))
 
     # ------------------------------------------------------------------
@@ -249,6 +253,7 @@ class MinSnapPlanner:
     _D = 4  # derivative order to minimise (snap)
 
     def __init__(self, start_pos: np.ndarray, obs: dict, t_total: float = 6.2):
+        """Build waypoints and solve for minimum-snap polynomial coefficients."""
         self.t_total = t_total
         self.waypoints = self._build_waypoints(start_pos, obs)
         self._seg_times = self._allocate_times(self.waypoints, t_total)
@@ -264,6 +269,7 @@ class MinSnapPlanner:
     def get_coordinates(
         self, times: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return pos, vel, acc, yaw arrays evaluated at the given times."""
         pos = self._eval(times, 0)
         vel = self._eval(times, 1)
         acc = self._eval(times, 2)
@@ -271,9 +277,11 @@ class MinSnapPlanner:
         return pos, vel, acc, yaw
 
     def evaluate_pos(self, t: float) -> np.ndarray:
+        """Return the position at scalar time t."""
         return self._eval(np.array([t]), 0)[0]
 
     def get_trajectory(self, n: int = 100) -> np.ndarray:
+        """Return n evenly-spaced positions along the full trajectory."""
         return self._eval(np.linspace(0, self.t_total, n), 0)
 
     # ------------------------------------------------------------------

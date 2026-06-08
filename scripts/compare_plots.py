@@ -21,6 +21,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 
 def load(path: Path) -> dict | None:
+    """Load an NPZ file and return its contents as a dict, or None if missing."""
     if not path.exists():
         print(f"[warn] {path} not found — skipping")
         return None
@@ -55,7 +56,8 @@ def draw_gate(ax: plt.Axes, pos: np.ndarray, quat: np.ndarray, half_size: float 
     ax.plot(corners[:, 0], corners[:, 1], corners[:, 2], "b-", lw=2)
 
 
-def main(log_dir: str = "/tmp/logs"):
+def main(log_dir: str = "/tmp/logs") -> None:
+    """Plot comparison of MPPI and PPO trajectory data from log_dir."""
     d = Path(log_dir)
     mppi = load(d / "mppi_data.npz")
     ppo = load(d / "ppo_data.npz")
@@ -136,7 +138,9 @@ def main(log_dir: str = "/tmp/logs"):
         ax_spd.plot(ppo["t"], spd, "m-", label="PPO actual")
         for gate_idx, t_cross, spd_cross in _gate_crossing_times(ppo):
             ax_spd.scatter(t_cross, spd_cross, marker="*", s=180, color="purple", zorder=5)
-            ax_spd.text(t_cross + 0.04, spd_cross + 0.05, f"G{gate_idx}", fontsize=7, color="purple")
+            ax_spd.text(
+                t_cross + 0.04, spd_cross + 0.05, f"G{gate_idx}", fontsize=7, color="purple"
+            )
 
     ax_spd.legend(fontsize=8)
     ax_spd.grid(True, alpha=0.3)
@@ -157,7 +161,10 @@ def main(log_dir: str = "/tmp/logs"):
     # Gate altitudes
     for i, gpos in enumerate(gates_pos):
         ax_z.axhline(gpos[2], color="blue", lw=0.7, ls=":", alpha=0.6)
-        ax_z.text(0.01, gpos[2] + 0.02, f"G{i}", fontsize=7, color="blue", transform=ax_z.get_yaxis_transform())
+        ax_z.text(
+            0.01, gpos[2] + 0.02, f"G{i}", fontsize=7, color="blue",
+            transform=ax_z.get_yaxis_transform(),
+        )
 
     ax_z.legend(fontsize=8)
     ax_z.grid(True, alpha=0.3)
@@ -219,14 +226,19 @@ def main(log_dir: str = "/tmp/logs"):
         tg = mppi["target_gate"]
         for step in np.where(np.diff(tg) != 0)[0]:
             ax_cost.axvline(t[step], color="blue", lw=1, ls="--", alpha=0.5)
-            ax_cost.text(t[step] + 0.02, ax_cost.get_ylim()[1] * 0.85, f"→G{tg[step+1]}", fontsize=7, color="blue")
+            ax_cost.text(
+                t[step] + 0.02, ax_cost.get_ylim()[1] * 0.85, f"→G{tg[step+1]}",
+                fontsize=7, color="blue",
+            )
 
         # Obstacle proximity on secondary axis
         if "min_obs_dist" in mppi:
             ax2 = ax_cost.twinx()
-            ax2.plot(t, mppi["min_obs_dist"], color="purple", lw=1.2, ls="--", label="nearest obstacle (m)")
+            ax2.plot(
+                t, mppi["min_obs_dist"], color="purple", lw=1.2, ls="--",
+                label="nearest obstacle (m)",
+            )
             # Collision threshold line
-            obs_r = float(mppi.get("obs_radius", np.array(0.1)))
             ax2.axhline(0.15, color="purple", lw=0.7, ls=":", alpha=0.6)
             ax2.set_ylabel("dist to nearest obstacle (m)", color="purple")
             ax2.tick_params(axis="y", colors="purple")
@@ -234,7 +246,9 @@ def main(log_dir: str = "/tmp/logs"):
 
         ax_cost.legend(fontsize=7, loc="upper left")
     else:
-        ax_cost.text(0.5, 0.5, "No MPPI data", ha="center", va="center", transform=ax_cost.transAxes)
+        ax_cost.text(
+            0.5, 0.5, "No MPPI data", ha="center", va="center", transform=ax_cost.transAxes
+        )
 
     ax_cost.grid(True, alpha=0.3)
 
@@ -247,6 +261,9 @@ def main(log_dir: str = "/tmp/logs"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--log-dir", default="/tmp/logs", help="Directory with mppi_data.npz and ppo_data.npz")
+    parser.add_argument(
+        "--log-dir", default="/tmp/logs",
+        help="Directory with mppi_data.npz and ppo_data.npz",
+    )
     args = parser.parse_args()
     main(args.log_dir)

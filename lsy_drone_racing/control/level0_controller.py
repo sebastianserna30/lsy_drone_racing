@@ -43,9 +43,9 @@ class Level0Controller(Controller):
         # --- Build waypoints ---
         waypoints = [obs["pos"].copy()]  # start at current drone position
 
-        takeoff = obs["pos"].copy()                                                                                                                                                                       
-        takeoff[2] = 0.5  # lift to 0.5m before going anywhere                                                                                                                                            
-        waypoints.append(takeoff)  
+        takeoff = obs["pos"].copy()
+        takeoff[2] = 0.5  # lift to 0.5m before going anywhere
+        waypoints.append(takeoff)
 
         gates_pos = obs["gates_pos"]    # shape (n_gates, 3)
         gates_quat = obs["gates_quat"]  # shape (n_gates, 4), format [x, y, z, w]
@@ -61,9 +61,9 @@ class Level0Controller(Controller):
         waypoints = np.array(waypoints)  # shape (1 + n_gates*3, 3)
         self._waypoints = waypoints
 
-        print("Waypoints:")                                                                                                                                                                               
-        for i, wp in enumerate(waypoints):                                                                                                                                                                
-            print(f"  {i}: {wp}")   
+        print("Waypoints:")
+        for i, wp in enumerate(waypoints):
+            print(f"  {i}: {wp}")
 
         # Assign timestamps proportional to cumulative distance between waypoints
         dists = np.linalg.norm(np.diff(waypoints, axis=0), axis=1)
@@ -107,7 +107,7 @@ class Level0Controller(Controller):
         """
         self._tick += 1
 
-        return obs["target_gate"] == -1   
+        return obs["target_gate"] == -1
 
     def episode_callback(self):
         """Reset internal state between episodes."""

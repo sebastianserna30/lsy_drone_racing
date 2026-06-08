@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import numpy as np
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
-from crazyflow.sim.data import SimData
 from crazyflow_experiments.sim2real.control.trajectory_generator import (
     TrajectoryGenerator3DPeriodicMotion,
 )
@@ -20,11 +19,15 @@ from jax import random, vmap
 from jax.lax import scan
 
 if TYPE_CHECKING:
+    from crazyflow.sim.data import SimData
     from numpy.typing import NDArray
 
 
 class AttitudeMPPIController:
+    """Multi-modal MPPI attitude controller (original version, kept for reference)."""
+
     def __init__(self, initial_obs: dict[str, NDArray[np.floating]], initial_info: dict):
+        """Initialize the controller with environment observation and config."""
         self.initial_obs = initial_obs
         self.initial_info = initial_info
 
@@ -184,20 +187,20 @@ class AttitudeMPPIController:
         terminated: bool | None = None,
         truncated: bool | None = None,
         info: dict | None = None,
-    ):
+    ) -> bool:
         """Increment the tick counter."""
         return self._finished
 
     @partial(jax.jit, static_argnames=["self"])
     def _mppi_core_update(
         self,
-        key,
+        key: jax.Array,
         obs: dict[str, jnp.ndarray],
         refs: dict[str, jnp.ndarray],
-        current_means,
-        noise_sigmas,
-    ):
-        """Internal MPPI update function that performs sampling, rollouts, cost evaluation, and mean updates.
+        current_means: jnp.ndarray,
+        noise_sigmas: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Internal MPPI update: sample, roll out, evaluate costs, update means.
 
         current_means: (K, Horizon, 4) - K different control strategies
         noise_sigmas: (K, Horizon, 4) - Adaptive variance for each strategy
@@ -215,7 +218,13 @@ class AttitudeMPPIController:
         # We need separate keys for each cluster to ensure independence
         keys = jax.random.split(key, self.K)
 
-        def sample_per_mean(k_key, k_mean, k_sigma, k_lb, k_ub):
+        def sample_per_mean(
+            k_key: jax.Array,
+            k_mean: jnp.ndarray,
+            k_sigma: jnp.ndarray,
+            k_lb: jnp.ndarray,
+            k_ub: jnp.ndarray,
+        ) -> jnp.ndarray:
             # Generate noise for ONE mean
             # Shape: (M, Horizon, 4)
             k_noise = self.get_truncated_normal_jax(
@@ -237,7 +246,9 @@ class AttitudeMPPIController:
         # or vmap twice. Flattening is easier.
         noise_flat = noise.reshape(-1, self.N, 4)  # (N, H, 4)
 
-        def smooth_scan(carry, x):
+        def smooth_scan(
+            carry: jnp.ndarray, x: jnp.ndarray
+        ) -> tuple[jnp.ndarray, jnp.ndarray]:
             new_val = self.beta * carry + (1 - self.beta) * x
             return new_val, new_val
 
@@ -272,7 +283,12 @@ class AttitudeMPPIController:
         # --- 5. PER-MODE UPDATE (The Core Logic) ---
         # We define a function that updates ONE mean, then vmap it over K
 
-        def update_single_mode(k_mean, k_noise, k_costs, k_sigma):
+        def update_single_mode(
+            k_mean: jnp.ndarray,
+            k_noise: jnp.ndarray,
+            k_costs: jnp.ndarray,
+            k_sigma: jnp.ndarray,
+        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             # k_mean: (H, 4)
             # k_noise: (M, H, 4)
             # k_costs: (M,)
@@ -328,7 +344,15 @@ class AttitudeMPPIController:
 
         return updated_means, updated_sigmas, best_mode_idx, costs_grouped, positions_grouped
 
-    def get_truncated_normal_jax(self, key, mean, sd, x_min, x_max, shape=(1,)):
+    def get_truncated_normal_jax(
+        self,
+        key: jax.Array,
+        mean: jnp.ndarray,
+        sd: jnp.ndarray,
+        x_min: jnp.ndarray,
+        x_max: jnp.ndarray,
+        shape: tuple = (1,),
+    ) -> jnp.ndarray:
         """Samples from a truncated normal distribution using JAX.
 
         Args:
@@ -354,16 +378,18 @@ class AttitudeMPPIController:
         return (standard_samples * sd) + mean
 
     @partial(jax.jit, static_argnames=["self"])
-    def shift_and_interpolate(self, controls, dt_plan, dt_ctrl):
-        """Shifts the control trajectory forward by dt_ctrl using linear interpolation.
+    def shift_and_interpolate(
+        self, controls: jnp.ndarray, dt_plan: float, dt_ctrl: float
+    ) -> jnp.ndarray:
+        """Shift the control trajectory forward by dt_ctrl using linear interpolation.
 
         Args:
-            controls: Array of shape (Horizon, Control_Dim)
-            dt_plan: Time duration of one step in the planning horizon
-            dt_ctrl: Time duration of one control cycle (latency/execution time)
+            controls: Array of shape (Horizon, Control_Dim).
+            dt_plan: Time duration of one step in the planning horizon.
+            dt_ctrl: Time duration of one control cycle (latency/execution time).
 
         Returns:
-            Shifted controls of shape (Horizon, Control_Dim)
+            Shifted controls of shape (Horizon, Control_Dim).
         """
         horizon_len = controls.shape[0]
 
@@ -375,7 +401,7 @@ class AttitudeMPPIController:
         target_times = old_times + dt_ctrl
 
         # Define the 1D interpolation logic
-        def interp_fn(y):
+        def interp_fn(y: jnp.ndarray) -> jnp.ndarray:
             # right=y[-1] implements Zero-Order Hold for the end of the horizon
             return jnp.interp(target_times, old_times, y, left=y[0], right=y[-1])
 
@@ -431,11 +457,11 @@ class AttitudeMPPIController:
     def apply_input(
         self, data: SimData, info: tuple[jnp.ndarray, dict[str, jnp.ndarray]]
     ) -> tuple[SimData, jnp.ndarray]:
-        """Rolls out the sim.
+        """Roll out the sim for one step.
 
         Args:
-            state: Initial state of the sim in the form a dictionary with the last observation.
-            input: Input to apply. Shape (N, 4), where N is the number of drones, and 4 is the control dimension (roll, pitch, yaw, thrust).
+            data: Initial sim state.
+            info: Tuple of (cmd, ref).
         """
         cmd, ref = info
         # Step sim with input
@@ -471,8 +497,8 @@ class AttitudeMPPIController:
 # The following part is just for visualization and should be removed in the future!
 
 
-def create_jax_model(p: dict):
-    """Creates an acados model from a symbolic drone_model."""
+def create_jax_model(p: dict) -> object:
+    """Create a JAX dynamics step function from the given parameter dict."""
     dyn_fixed = partial(
         dynamics,  # The original dynamics function definition
         mass=p["mass"],
@@ -488,8 +514,8 @@ def create_jax_model(p: dict):
         drag_matrix=p["drag_matrix"],
     )
 
-    def dynamics_adapter(x, u, dt):
-        """Adapter to convert state vector x and control u into individual arguments for the dynamics function.
+    def dynamics_adapter(x: jnp.ndarray, u: jnp.ndarray, dt: float) -> jnp.ndarray:
+        """Integrate the drone dynamics one step forward.
 
         Assumed x layout (dim 13):
         0:3   -> pos
@@ -581,8 +607,14 @@ dynamics_step = create_jax_model(drone_params)
 
 
 @jax.jit
-def rollout_fn(state, ctrls, dt):
-    def body(carry, u):
+def rollout_fn(
+    state: jnp.ndarray, ctrls: jnp.ndarray, dt: float
+) -> jnp.ndarray:
+    """Roll out drone dynamics from state under control sequence ctrls."""
+
+    def body(
+        carry: jnp.ndarray, u: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         n_st = dynamics_step(carry, u, dt)
         return n_st, n_st
 
