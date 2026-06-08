@@ -351,30 +351,88 @@ class SplinePlanner:
         return np.array(waypoints)
 
     @staticmethod
-    def _allocate_times(waypoints: np.ndarray, t_total: float, k: float) -> np.ndarray:
-        """Arc-length + curvature-weighted segment time allocation.
+    def _allocate_times(
+        waypoints: np.ndarray,
+        t_total: float,
+        k: float,
+        v_max: float = 4.5,
+        a_lat: float = 10.0,
+        a_long: float = 12.0,
+        a_brake: float = 12.0,
+        n_samples: int = 300,
+    ) -> np.ndarray:
+        """Curvature-limited (friction-circle) segment time allocation.
 
-        Each segment's time share is proportional to its arc length multiplied by
-        a curvature weight: ``weight = 1 + k * (1 - cos(turn_angle))``.
-        ``1 - cos(θ)`` is 0 for straight segments and 2 for a U-turn, so ``k``
-        directly controls how aggressively turns are slowed down.
+        Replaces the old arc-length x (1 + k*(1-cos turn)) heuristic, which
+        produced a spiky speed profile. This builds a provisional chord-length
+        spline purely to *read* the path curvature, then computes the fastest
+        speed profile that respects three physical limits:
+
+        - ``a_lat``  — lateral (cornering) accel: slow speed in tight turns,
+          ``v_lim = sqrt(a_lat / kappa)``, capped at ``v_max`` on straights.
+        - ``a_long`` — forward accel: a *forward* pass from a standing start
+          (``v=0``) limits how fast speed can build (kills the start overshoot).
+        - ``a_brake``— braking decel: a *backward* pass forces braking to happen
+          *before* a turn, not in it.
+
+        Speed is then converted to time (``dt = ds / v``) and rescaled to
+        ``t_total`` so it stays the hard lap-time budget. The limits are physical
+        constants (tunable), NOT derived from any reference trajectory.
+
+        ``k`` (curvature_weight) is superseded by this method and now unused; it
+        is kept in the signature so existing callers don't break.
         """
-        segs = np.diff(waypoints, axis=0)
-        dists = np.linalg.norm(segs, axis=1)
-        dirs = segs / dists[:, None]
+        n_wp = len(waypoints)
+        if n_wp < 3:
+            return np.linspace(0.0, t_total, n_wp)
 
-        # Turning sharpness at each waypoint (0 at endpoints)
-        n = len(waypoints)
-        sharpness = np.zeros(n)
-        for i in range(1, n - 1):
-            cos_a = np.clip(np.dot(dirs[i - 1], dirs[i]), -1.0, 1.0)
-            sharpness[i] = 1.0 - cos_a
+        # 1. Provisional chord-length parameterisation to read geometry.
+        #    Default (not-a-knot) BC — NOT the final zero-velocity BC — so the
+        #    parameter derivative never vanishes at the ends and curvature stays
+        #    well-defined there.
+        chord = np.linalg.norm(np.diff(waypoints, axis=0), axis=1)
+        u_knot = np.concatenate([[0.0], np.cumsum(chord)])
+        path = CubicSpline(u_knot, waypoints)
 
-        # Segment weight = average sharpness of its two endpoint waypoints
-        seg_weights = 1.0 + k * (sharpness[:-1] + sharpness[1:]) / 2.0
-        raw = dists * seg_weights
-        seg_times = t_total * raw / raw.sum()
-        return np.concatenate([[0.0], np.cumsum(seg_times)])
+        # 2. Dense resample + per-step arc length.
+        u = np.linspace(0.0, u_knot[-1], n_samples)
+        pts = path(u)
+        ds = np.linalg.norm(np.diff(pts, axis=0), axis=1)  # (n_samples-1,)
+
+        # 3. Curvature  kappa = |d1 x d2| / |d1|^3.
+        d1 = path(u, 1)
+        d2 = path(u, 2)
+        cross = np.linalg.norm(np.cross(d1, d2), axis=1)
+        speed1 = np.linalg.norm(d1, axis=1)
+        kappa = np.clip(cross / np.clip(speed1**3, 1e-9, None), 1e-6, None)
+
+        # 4. Curvature-limited speed cap (friction circle).
+        v_lim = np.minimum(v_max, np.sqrt(a_lat / kappa))
+
+        # 5. Forward pass from rest:  v^2 = v0^2 + 2 a ds.
+        v = v_lim.copy()
+        v[0] = 0.0
+        for i in range(1, n_samples):
+            v[i] = min(v[i], np.sqrt(v[i - 1] ** 2 + 2.0 * a_long * ds[i - 1]))
+
+        # 6. Backward pass for braking. No forced terminal stop: the last
+        #    waypoint sits past the final gate (which the drone crosses at
+        #    speed), so braking is only for interior curvature-limited turns.
+        for i in range(n_samples - 2, -1, -1):
+            v[i] = min(v[i], np.sqrt(v[i + 1] ** 2 + 2.0 * a_brake * ds[i]))
+
+        # 7. Arc length -> time using the average speed over each step.
+        v_seg = 0.5 * (v[:-1] + v[1:])
+        dt = ds / np.clip(v_seg, 1e-6, None)
+        t_sample = np.concatenate([[0.0], np.cumsum(dt)])
+
+        # 8. Knot time = interpolated time at each waypoint's chord position.
+        t_knot = np.interp(u_knot, u, t_sample)
+
+        # 9. Rescale to the lap-time budget.
+        if t_knot[-1] > 1e-9:
+            t_knot = t_knot * (t_total / t_knot[-1])
+        return t_knot
 
 
 class MinSnapPlanner:
