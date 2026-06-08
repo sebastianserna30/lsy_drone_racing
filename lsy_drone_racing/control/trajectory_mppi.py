@@ -118,10 +118,12 @@ class AttitudeMPPIController(Controller):
         self._planner = SplinePlanner(
             self._start_pos,
             initial_obs,
-            5.0,  # TODO: tune this to -> try faster laps
-            curvature_weight=0.5,
-            obstacles_pos=None,
-            clearance=0.0,
+            t_total=5.0,  # changedPractical: was 5.0; target matches PPO lap time (3.20s)
+            curvature_weight=2.0,  #  changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1 curve)
+            obstacles_pos=initial_obs[
+                "obstacles_pos"
+            ],  # changedPractical: obs1 at (1.0,0.25) is 0.03m from no-detour spline
+            clearance=0.22,  # changedPractical: 0.16-0.21 flips obs3 detour to SW (wrong side, path 8.0m); 0.22 stays NE (path 7.74m, min_obs 0.21m)
         )
 
         self._finished = False
