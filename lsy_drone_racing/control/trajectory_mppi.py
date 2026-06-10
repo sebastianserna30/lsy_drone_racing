@@ -45,22 +45,38 @@ class AttitudeMPPIController(Controller):
             info: Additional environment information from the reset.
             initial_info: seems to be config: The configuration of the environment.
         """
+        # changedPractical: in the multi-drone env every obs value carries a leading
+        # drone dimension; this controller expects single-drone obs, so slice by rank.
+        # Single-drone sims don't inject "rank", so they are left untouched.
+        self.rank = info.get("rank", 0) if info is not None else 0
+        self._multi = info is not None and "rank" in info
+        if self._multi:
+            initial_obs = {k: v[self.rank] for k, v in initial_obs.items()}
+
         super().__init__(initial_obs, info, initial_info)
 
         self.initial_obs = initial_obs
         self.initial_info = initial_info
 
-        self.N = initial_info["controller"]["mppi"]["N"]
-        self.T = initial_info["controller"]["mppi"]["T"]
+        # changedPractical: multi-drone configs use [[controller]] (array-of-tables), so
+        # initial_info["controller"] is a list of per-drone dicts; single configs use
+        # [controller] and give a dict. Resolve this drone's controller config by rank.
+        ctrl_cfg = initial_info["controller"]
+        if isinstance(ctrl_cfg, list):
+            ctrl_cfg = ctrl_cfg[self.rank]
+        mppi_cfg = ctrl_cfg["mppi"]
+
+        self.N = mppi_cfg["N"]
+        self.T = mppi_cfg["T"]
         self.dt = self.T / self.N
         self.dt_array = jnp.arange(0, self.T, self.dt)
         self.f = int(self.N / self.T)
         assert np.isclose(self.f, self.N / self.T), (
             "N must be divisible by T for consistent time steps"
         )
-        self.ctrl_dt = 1 / initial_info["controller"]["ctrl_freq"]
-        self.n_samples = initial_info["controller"]["mppi"]["n_samples"]
-        self.K = initial_info["controller"]["mppi"]["K"]
+        self.ctrl_dt = 1 / ctrl_cfg["ctrl_freq"]
+        self.n_samples = mppi_cfg["n_samples"]
+        self.K = mppi_cfg["K"]
         self.M = self.n_samples // self.K  # samples per mode
 
         # changedPractical
@@ -81,15 +97,13 @@ class AttitudeMPPIController(Controller):
         self.step_fn = self.sim.build_step_fn()
 
         self.noise_sigmas = jnp.full(
-            (self.K, self.N, 4),
-            fill_value=initial_info["controller"]["mppi"]["noise_sigma"],
-            device=self.sim.device,
+            (self.K, self.N, 4), fill_value=mppi_cfg["noise_sigma"], device=self.sim.device
         )
-        self.temperature = initial_info["controller"]["mppi"]["temperature"]
-        self.elite_percentage = initial_info["controller"]["mppi"]["elite_percentage"]
-        self.beta = initial_info["controller"]["mppi"]["beta"]
-        self.alpha = initial_info["controller"]["mppi"]["alpha"]
-        self.min_variance = initial_info["controller"]["mppi"]["min_variance"]
+        self.temperature = mppi_cfg["temperature"]
+        self.elite_percentage = mppi_cfg["elite_percentage"]
+        self.beta = mppi_cfg["beta"]
+        self.alpha = mppi_cfg["alpha"]
+        self.min_variance = mppi_cfg["min_variance"]
 
         # changedPractical: initialise thrust channel to hover so MPPI starts from a stable baseline
         _init = jnp.zeros((self.K, self.N, 4), device=self.sim.device)
@@ -157,9 +171,14 @@ class AttitudeMPPIController(Controller):
         info_short = {"rng_key": subkey, "obstacles": jnp.array(initial_obs["obstacles_pos"])}
 
         self._log_buf: dict | None = None  # must be set before warmup calls compute_control
+        # changedPractical: initial_obs is already sliced to this drone (see __init__), so
+        # disable compute_control's own rank-slicing for the warmup calls to avoid double-slicing.
+        _was_multi = self._multi
+        self._multi = False
         for i in range(10):
             a = self.compute_control(initial_obs, info_short)  # Warm up the controller
             jax.block_until_ready(a)
+        self._multi = _was_multi
         # changedPractical: warmup advanced self._t by 10*ctrl_dt (~0.2s). Reset BOTH the master
         # clock and _t_start to 0 so (a) the first real step queries the spline at t≈0 and
         # (b) the logged timestamp (self._t) carries no warmup offset — otherwise every logged
@@ -198,6 +217,10 @@ class AttitudeMPPIController(Controller):
             The collective thrust and orientation [r_des, p_des, y_des, t_des] as a numpy array.
         """
         self._t += self.ctrl_dt
+
+        # changedPractical: slice multi-drone obs down to this drone (see __init__).
+        if self._multi:
+            obs = {k: v[self.rank] for k, v in obs.items()}
 
         obs["rotor_vel"] = self.thrust
         obs_device = {k: jax.device_put(v, self.sim.device) for k, v in obs.items()}
@@ -306,6 +329,9 @@ class AttitudeMPPIController(Controller):
         info: dict | None = None,
     ) -> bool:
         """Increment the tick counter."""
+        # changedPractical: slice multi-drone obs down to this drone (see __init__).
+        if self._multi and obs is not None:
+            obs = {k: v[self.rank] for k, v in obs.items()}
         # changedPractical
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
         # changedPractical: finish when all gates are passed, not only when spline time expires

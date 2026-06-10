@@ -4,9 +4,23 @@
 # | :-----------------: | :-----------------------: | :-------------------------: | :--------------------: | :---------------: |
 # | `level0.toml`       | *No*                      | *No*                        | *No*                   | Perfect knowledge |
 [[controller]]
-file = "attitude_mpc_multi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+file = "attitude_controller_multi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
 [[controller]]  # Add the controller files for each drone
-file = "attitude_controller_multi.py"
+file = "trajectory_mppi.py"
+type = "mppi" # mellinger, mppi
+ctrl_freq = 50 # Hz
+
+[controller.mppi] # MPPI parameters
+N = 25
+T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
+n_samples = 1000
+noise_sigma = 0.01 # Initial noise std
+temperature = 0.25
+elite_percentage = 0.01 # Top percent for averaging in [0,1]
+beta = 0.6 # Noise smoothing in [0,1] (no smoothing to max smoothing)
+alpha = 0.1 # weighted variance update weight
+min_variance = 0.02
+K = 5 # means
 
 [deploy]
 ### Settings only relevant for deployment
@@ -106,3 +120,30 @@ ang_vel = [0, 0, 0]
 [env.track.safety_limits]
 pos_limit_low = [-2.5, -1.5, -1e-3]
 pos_limit_high = [2.5, 1.5, 2.0]
+
+#Everything for MPPI
+[drone]
+id = 52
+channel = 80
+model = "cf21B_500"
+pos_landing = [1.5, 1.5, 0.0] # landing position of the drone in global frame
+pos_update_freq = 10 # Hz, frequency for onboard estimator updates
+
+[experiment]
+pos_trajectory = [0.0, 0.25, 1.05] # position in global frame around which the trajectory is centered
+trajectory = "lissajous" # type of trajectory, e.g., figure8, ellipse, figure8_bent, melon, ...
+plane = "xy" # plane in which the trajectoy lies, e.g., xy, xz. Ignored for 3d trajectories
+scaling = [1.6, 1.6, 0.0] # maximum size in m of the trajectory, [2.0, 0.5, 1.0], [2.0, 1.0, 0.5]
+time = 20 # time per loop of the trajectory
+n_runs = 1 # number of runs
+yaw_mode = "constant" # yaw behavior: constant, velocity, direction
+yaw_setting = 0 # yaw parameter, e.g., for constant: angle in rad, for velocity: rate in rot/T
+soft_start = true # enable/disable soft start
+[experiment.env]
+drone_radius = 0.12  # 86mm + safety margin
+obstacle_radius = 0.055  # 110mm diameter pipes
+obstacle_length = 1.0
+
+[plot]
+show = false # enable/disable showing plots
+save = true # enable/disable saving plots
