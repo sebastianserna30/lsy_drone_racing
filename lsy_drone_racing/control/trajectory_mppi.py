@@ -160,9 +160,13 @@ class AttitudeMPPIController(Controller):
         for i in range(10):
             a = self.compute_control(initial_obs, info_short)  # Warm up the controller
             jax.block_until_ready(a)
-        # changedPractical: _t_start was set to _t=0.0 above (warmup placeholder); reset it after
-        # warmup so the first real episode step queries the spline at t≈0, not t≈0.2
-        self._t_start = self._t
+        # changedPractical: warmup advanced self._t by 10*ctrl_dt (~0.2s). Reset BOTH the master
+        # clock and _t_start to 0 so (a) the first real step queries the spline at t≈0 and
+        # (b) the logged timestamp (self._t) carries no warmup offset — otherwise every logged
+        # sample plots ~0.2s late
+        # TODO: Check this before real-hardware test;
+        self._t = 0.0
+        self._t_start = 0.0
 
         if os.getenv("LOG_DRONE_DATA"):
             self._log_buf = {
