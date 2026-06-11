@@ -20,6 +20,7 @@ from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
 from jax import random, vmap
 from jax.lax import scan
+from scipy.spatial.transform import Rotation as R
 
 from lsy_drone_racing.control import Controller
 from lsy_drone_racing.control.spline_planner import SplinePlanner
@@ -33,6 +34,27 @@ if TYPE_CHECKING:
 
 class AttitudeMPPIController(Controller):
     """Multi-modal MPPI attitude controller for drone racing."""
+
+    def get_gate_frame_pos(  
+            self, gates_pos: NDArray[np.floating], gates_quat: NDArray[np.floating]
+            ) -> NDArray[np.floating]:
+        """Returns frame-centre possitions for each gate.
+
+        Output shape (n_gates*2, 3)
+        """
+        n_gates = gates_pos.shape[0]
+        gate_frame_pos = np.zeros((n_gates*2,3))
+
+        for i in range(n_gates):
+            rotation = R.from_quat(gates_quat[i])
+
+            side_axis = rotation.apply([0.0, 1.0, 0.0])
+
+            gate_frame_pos[2*i] = gates_pos[i] - 0.28*side_axis
+            gate_frame_pos[2*i + 1] = gates_pos[i] + 0.28*side_axis
+        
+        return gate_frame_pos
+
 
     def __init__(
         self, initial_obs: dict[str, NDArray[np.floating]], info: dict, initial_info: dict
@@ -82,6 +104,11 @@ class AttitudeMPPIController(Controller):
         # changedPractical
         self._t = 0.0
 
+        if jax.default_backend() == 'cpu':
+            available_device = 'cpu'
+        else:
+            available_device = 'cuda'
+
         self.sim = Sim(
             n_worlds=self.n_samples,
             n_drones=1,
@@ -90,7 +117,7 @@ class AttitudeMPPIController(Controller):
             physics=Physics.so_rpy_rotor_drag,
             control=Control.attitude,
             drone_model="cf21B_500",
-            device="cuda",  # TODO get from info
+            device=available_device,  # TODO get from info
         )
         self.sim.reset()
 
@@ -112,6 +139,8 @@ class AttitudeMPPIController(Controller):
         # Shape: (Num_Obstacles, 3)
         # changedPractical
         self.obstacles = jnp.array(initial_obs["obstacles_pos"], device=self.sim.device)
+        gate_frame_pos = self.get_gate_frame_pos(initial_obs["gates_pos"], initial_obs["gates_quat"])
+        self.gate_frame_obstacles = jnp.array(gate_frame_pos, device=self.sim.device)
 
         # changedPractical
         # self.low_level_ctrl_freq = initial_info["low_level_ctrl_freq"]
@@ -128,11 +157,15 @@ class AttitudeMPPIController(Controller):
         self._action_ema = 0.4  # blend: 0.4 * new + 0.6 * prev
 
         # changedPractical
+        self.t_goal = 4.6
+
         self._start_pos = initial_obs["pos"].copy()
+        self._last_gates_pos = None
+        self._last_gates_quat = None
         self._planner = SplinePlanner(
             self._start_pos,
             initial_obs,
-            t_total=5.0,  # changedPractical: was 5.0; target matches PPO lap time (3.20s)
+            t_total=self.t_goal,  # changedPractical: was 5.0; target matches PPO lap time (3.20s), 3.7 works limit(level0)
             curvature_weight=2.0,  #  changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1 curve)
             obstacles_pos=initial_obs[
                 "obstacles_pos"
@@ -333,7 +366,36 @@ class AttitudeMPPIController(Controller):
         if self._multi and obs is not None:
             obs = {k: v[self.rank] for k, v in obs.items()}
         # changedPractical
+
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
+
+
+        gates_changed = (
+            self._last_gates_pos is None
+            or not jnp.allclose(obs["gates_pos"], self._last_gates_pos)
+            or not jnp.allclose(obs["gates_quat"], self._last_gates_quat)
+        )
+        
+        if gates_changed:
+            gate_frame_pos = self.get_gate_frame_pos(obs["gates_pos"], obs["gates_quat"])
+            self.gate_frame_obstacles = jnp.array(gate_frame_pos, device=self.sim.device)
+            
+            update_planner = False
+
+            if update_planner:
+                self._planner = SplinePlanner(
+                    self._start_pos,
+                    obs,
+                    t_total=self.t_goal,  # changedPractical: was 5.0; target matches PPO lap time (3.20s), 3.7 works limit(level0)
+                    curvature_weight=2.0,  #  changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1 curve)
+                    obstacles_pos=obs[
+                        "obstacles_pos"
+                    ],  # changedPractical: obs1 at (1.0,0.25) is 0.03m from no-detour spline
+                    clearance=0.22,  # changedPractical: 0.16-0.21 flips obs3 detour to SW (wrong side, path 8.0m); 0.22 stays NE (path 7.74m, min_obs 0.21m)
+                )
+            self._last_gates_pos = obs["gates_pos"].copy()
+            self._last_gates_quat = obs["gates_quat"].copy()
+
         # changedPractical: finish when all gates are passed, not only when spline time expires
         if obs.get("target_gate", 0) == -1:
             self._finished = True
@@ -440,7 +502,8 @@ class AttitudeMPPIController(Controller):
         # 2. Reshape to (N, K*M, 4)
         controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, 4)
 
-        costs_flat, positions_flat = self.rollout_sim(obs, (controls_flat, refs, self.obstacles))
+        costs_flat, positions_flat = self.rollout_sim(
+            obs, (controls_flat, refs, self.obstacles, self.gate_frame_obstacles))
 
         # Reshape costs back to groups: (K, M)
         costs_grouped = costs_flat.reshape(self.K, self.M)
@@ -574,7 +637,8 @@ class AttitudeMPPIController(Controller):
 
     @partial(jax.jit, static_argnames=["self"])
     def compute_cost(
-        self, data: SimData, reference: dict[str, jnp.ndarray], obstacles: jnp.ndarray
+        self, data: SimData, reference: dict[str, jnp.ndarray], obstacles: jnp.ndarray, 
+        gate_frame_obstacles: jnp.ndarray
     ) -> jnp.ndarray:
         """Compute the cost for a given state."""
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
@@ -590,7 +654,7 @@ class AttitudeMPPIController(Controller):
         pos_error = jnp.linalg.norm(pos - des_pos, axis=-1)
         # pos_cost = pos_error**2 * 10.0
         # changedPractical
-        pos_cost = pos_error**2 * 40.0
+        pos_cost = pos_error**2 * 60.0
         z_cost = jnp.abs(pos[..., 2] - des_pos[..., 2]) * 80.0  # Extra penalty for altitude error
         vel_error = jnp.linalg.norm(vel - des_vel, axis=-1)
         vel_cost = vel_error**2 * 1.0
@@ -626,11 +690,24 @@ class AttitudeMPPIController(Controller):
         )
         obstacle_cost = 1000.0 * jnp.sum(obstacle_hits, axis=-1)
 
-        ## 4. Floor penalty — prevents rollouts from sinking into the ground
+        ## 4. Gate Obstacle Cost (Safety)
+        gate_obs_diff = jnp.linalg.norm(pos[..., None, :2] - gate_frame_obstacles[None, :, :2],
+                                         axis=-1)
+        gate_obstacle_hits = jnp.where(
+            gate_obs_diff
+            < self.initial_info["experiment"]["env"]["gate_frame_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"],
+            1,
+            0,
+        )
+        gate_obstacle_cost = 1000.0 * jnp.sum(gate_obstacle_hits, axis=-1)
+        #gate_obstacle_cost = 0
+
+        ## 5. Floor penalty — prevents rollouts from sinking into the ground
         # changedPractical: penalise rollout states below z=0.1m, deters early liftoff instability
         floor_cost = jnp.where(pos[..., 2] < 0.1, (0.1 - pos[..., 2]) ** 2 * 500.0, 0.0)
 
-        return state_cost + input_cost + obstacle_cost + floor_cost
+        return state_cost + input_cost + obstacle_cost + gate_obstacle_cost + floor_cost
 
     @partial(jax.jit, static_argnames=["self"])
     def apply_input(
@@ -642,7 +719,7 @@ class AttitudeMPPIController(Controller):
             data: Initial sim state.
             info: Tuple of (cmd, ref, obstacles).
         """
-        cmd, ref, obstacles = info
+        cmd, ref, obstacles, gate_frame_obstacles = info
         # Step sim with input
         data = data.replace(
             controls=data.controls.replace(
@@ -650,12 +727,12 @@ class AttitudeMPPIController(Controller):
             )
         )
         next_data = self.step_fn(data, self.sim.freq // self.sim.control_freq)
-        cost = self.compute_cost(next_data, ref, obstacles)
+        cost = self.compute_cost(next_data, ref, obstacles, gate_frame_obstacles)
         return next_data, (cost, next_data.states.pos)
 
     @partial(jax.jit, static_argnames=["self"])
     def rollout_sim(
-        self, obs: dict, infos: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray]
+        self, obs: dict, infos: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]
     ) -> jnp.ndarray:
         """Rolls out the sim for scan."""
         data = self.sim.data
@@ -669,10 +746,14 @@ class AttitudeMPPIController(Controller):
                 pos=pos, quat=quat, vel=vel, ang_vel=ang_vel, rotor_vel=rotor_vel
             )
         )
-        controls_flat, refs, obstacles = infos
+        controls_flat, refs, obstacles, gate_frame_obstacles = infos
         # scan iterates over axis 0 (N time steps); tile obstacles so each step gets a slice
         obstacles_tiled = jnp.broadcast_to(obstacles[None], (self.N,) + obstacles.shape)
-        _, (costs, positions) = scan(self.apply_input, data, (controls_flat, refs, obstacles_tiled))
+        gate_frame_obstacles_tiled = jnp.broadcast_to(
+            gate_frame_obstacles[None], (self.N,) + gate_frame_obstacles.shape)
+        
+        _, (costs, positions) = scan(self.apply_input, data, (
+            controls_flat, refs, obstacles_tiled, gate_frame_obstacles_tiled))
         return jnp.sum(costs, axis=0), positions
 
     # changedPractical
@@ -714,8 +795,15 @@ class AttitudeMPPIController(Controller):
         best_m = int(np.argmin(costs[best_k]))
         draw_line(sim, positions[best_k, best_m], rgba=(1.0, 1.0, 1.0, 1.0))
 
+    def _draw_obstacles(self, sim: Sim):
+        draw_points(sim, self.obstacles, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
+        draw_points(sim, self.gate_frame_obstacles, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
+        
+
+
     # own renderings
     def render_callback(self, sim: Sim):
         """Visualize the desired trajectory and the current setpoint."""
         self._draw_reference(sim)
         self._draw_mppi_rollouts(sim)
+        self._draw_obstacles(sim)
