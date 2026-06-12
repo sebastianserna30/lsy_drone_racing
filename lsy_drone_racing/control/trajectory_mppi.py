@@ -184,8 +184,6 @@ class AttitudeMPPIController(Controller):
             mppi_cfg.get("action_ema", 0.4)
         )  # blend: ema * new + (1-ema) * prev
 
-        # changedPractical
-        self.t_goal = 4.6
 
         self._start_pos = initial_obs["pos"].copy()
         self._last_gates_pos = None
@@ -407,13 +405,13 @@ class AttitudeMPPIController(Controller):
             gate_frame_pos = self.get_gate_frame_pos(obs["gates_pos"], obs["gates_quat"])
             self.gate_frame_obstacles = jnp.array(gate_frame_pos, device=self.sim.device)
 
-            update_planner = False
+            update_planner = True
 
             if update_planner:
                 self._planner = SplinePlanner(
                     self._start_pos,
                     obs,
-                    t_total=self.t_goal,  # changedPractical: was 5.0; target matches PPO lap time (3.20s), 3.7 works limit(level0)
+                    t_total=self._spline_t_total,  # changedPractical: was 5.0; target matches PPO lap time (3.20s), 3.7 works limit(level0)
                     curvature_weight=2.0,  #  changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1 curve)
                     obstacles_pos=obs[
                         "obstacles_pos"

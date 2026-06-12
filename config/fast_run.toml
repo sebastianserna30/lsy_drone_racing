@@ -24,7 +24,7 @@ K = 5 # means
 action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 4.1 # was 5.0; target matches PPO lap time (3.20s)
+t_total = 5.0 # was 5.0; target matches PPO lap time (3.20s)
 curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
 clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
 
@@ -51,10 +51,11 @@ check_drone_start_pos = true
 # Lets you practice your controller without putting up gates & obstacles, assumes nominal positions given below.
 real_track_objects = true
 
+
 [[deploy.drones]]
-id = 10
+id = 20
 channel = 100
-drone_model = "cf21B_500"                        # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
+drone_model = "cf21B_500"    
 
 
 [sim]
@@ -135,10 +136,50 @@ fn = "uniform"
 minval = [-0.1, -0.1, -0.1]
 maxval = [0.1, 0.1, 0.1]
 
+[env.randomizations.drone_pos]
+fn = "uniform"
+[env.randomizations.drone_pos.kwargs]
+minval = [-0.1, -0.1, 0.0]
+maxval = [0.1, 0.1, 0.02]
+
+[env.randomizations.drone_rpy]
+fn = "uniform"
+[env.randomizations.drone_rpy.kwargs]
+minval = [-0.1, -0.1, -0.1]
+maxval = [0.1, 0.1, 0.1]
+
+[env.randomizations.drone_mass]
+fn = "uniform"
+[env.randomizations.drone_mass.kwargs]
+minval = -0.005
+maxval = 0.005
+
+[env.randomizations.drone_inertia]
+fn = "uniform"
+[env.randomizations.drone_inertia.kwargs]
+minval = [-0.000001, -0.000001, -0.000001]
+maxval = [0.000001, 0.000001, 0.000001]
+
+[env.randomizations.gate_pos]
+fn = "uniform"
+[env.randomizations.gate_pos.kwargs]
+minval = [-0.15, -0.15, -0.15]
+maxval = [0.15, 0.15, 0.15]
+
+[env.randomizations.gate_rpy]
+fn = "uniform"
+[env.randomizations.gate_rpy.kwargs]
+minval = [-0.15, -0.15, -0.30]
+maxval = [0.15, 0.15, 0.30]
+
+[env.randomizations.obstacle_pos]
+fn = "uniform"
+[env.randomizations.obstacle_pos.kwargs]
+minval = [-0.05, -0.05, -0.05]
+maxval = [0.05, 0.05, 0.05]
+
 #Everything for MPPI
 [drone]
-id = 52
-channel = 80
 model = "cf21B_500"
 pos_landing = [1.5, 1.5, 0.0] # landing position of the drone in global frame
 pos_update_freq = 10 # Hz, frequency for onboard estimator updates
@@ -156,6 +197,7 @@ soft_start = true # enable/disable soft start
 [experiment.env]
 drone_radius = 0.12  # 86mm + safety margin
 obstacle_radius = 0.055  # 110mm diameter pipes
+gate_frame_radius = 0.08
 obstacle_length = 1.0
 
 [plot]
