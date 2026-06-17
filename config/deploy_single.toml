@@ -1,8 +1,6 @@
-# fast_run — tuned MPPI profile (canonical "best run" config)
+# deploy single — tuned MPPI for deployment on real HW
 #
-# Single-drone test config. Holds the current best-performing MPPI values that were
-# previously hardcoded in trajectory_mppi.py. Best run: 3.86s on level0, all 4 gates.
-# Track layout is identical to level0_MPPI.toml (perfect knowledge, no randomization).
+# Single-drone test config. Small noise added for runnign on deployment
 
 [controller]
 file = "trajectory_mppi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
@@ -24,7 +22,7 @@ K = 5 # means
 action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 3.8 # was 5.0; target matches PPO lap time (3.20s)
+t_total = 5.0 # was 5.0; target matches PPO lap time (3.20s)
 curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
 clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
 
@@ -135,6 +133,48 @@ fn = "uniform"
 [env.disturbances.dynamics.kwargs]
 minval = [-0.1, -0.1, -0.1]
 maxval = [0.1, 0.1, 0.1]
+
+[env.randomizations.drone_pos]
+fn = "uniform"
+[env.randomizations.drone_pos.kwargs]
+minval = [-0.1, -0.1, 0.0]
+maxval = [0.1, 0.1, 0.02]
+
+[env.randomizations.drone_rpy]
+fn = "uniform"
+[env.randomizations.drone_rpy.kwargs]
+minval = [-0.1, -0.1, -0.1]
+maxval = [0.1, 0.1, 0.1]
+
+[env.randomizations.drone_mass]
+fn = "uniform"
+[env.randomizations.drone_mass.kwargs]
+minval = -0.005
+maxval = 0.005
+
+[env.randomizations.drone_inertia]
+fn = "uniform"
+[env.randomizations.drone_inertia.kwargs]
+minval = [-0.000001, -0.000001, -0.000001]
+maxval = [0.000001, 0.000001, 0.000001]
+
+[env.randomizations.gate_pos]
+fn = "uniform"
+[env.randomizations.gate_pos.kwargs]
+minval = [-0.10, -0.10, -0.1]
+maxval = [0.10, 0.10, 0.1]
+
+[env.randomizations.gate_rpy]
+fn = "uniform"
+[env.randomizations.gate_rpy.kwargs]
+minval = [-0.05, -0.1, -0.2]
+maxval = [0.05, 0.1, 0.2]
+
+[env.randomizations.obstacle_pos]
+fn = "uniform"
+[env.randomizations.obstacle_pos.kwargs]
+minval = [-0.10, -0.10, -0.05]
+maxval = [0.10, 0.10, 0.05]
 
 #Everything for MPPI
 [drone]

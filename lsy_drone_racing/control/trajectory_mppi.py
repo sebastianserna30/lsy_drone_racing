@@ -405,7 +405,7 @@ class AttitudeMPPIController(Controller):
             gate_frame_pos = self.get_gate_frame_pos(obs["gates_pos"], obs["gates_quat"])
             self.gate_frame_obstacles = jnp.array(gate_frame_pos, device=self.sim.device)
 
-            update_planner = True
+            update_planner = False
 
             if update_planner:
                 self._planner = SplinePlanner(
