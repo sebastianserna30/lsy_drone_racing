@@ -280,6 +280,6 @@ class AttitudeController_1(Controller):
         setpoint = self._des_pos_spline(self._tick / self._freq).reshape(1, -1)
         draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
         trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
-        draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
+        draw_line(sim, trajectory, rgba=(0.7, 0.7, 0.7, 1.0))
 
         draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)

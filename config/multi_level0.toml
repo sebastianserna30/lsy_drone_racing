@@ -6,14 +6,14 @@
 [[controller]]
 file = "attitude_controller_multi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
 [[controller]]  # Add the controller files for each drone
-file = "trajectory_mppi.py"
+file = "trajectory_mppi_multi.py"
 type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
 
 [controller.mppi] # MPPI parameters
 N = 25
 T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
-n_samples = 1000
+n_samples = 5000
 noise_sigma = 0.01 # Initial noise std
 temperature = 0.25
 elite_percentage = 0.01 # Top percent for averaging in [0,1]
@@ -21,6 +21,25 @@ beta = 0.6 # Noise smoothing in [0,1] (no smoothing to max smoothing)
 alpha = 0.1 # weighted variance update weight
 min_variance = 0.02
 K = 5 # means
+action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
+
+[controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
+t_total = 5.0 # was 5.0; target matches PPO lap time (3.20s)
+curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
+clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
+
+[controller.mppi.cost] # MPPI cost-function weights
+pos = 40.0 # position tracking
+z = 80.0 # extra penalty for altitude error
+vel = 1.0 # velocity tracking
+ang_vel = 0.0 # angular-velocity penalty (off)
+ang_acc = 0.0 # angular-acceleration penalty (off)
+tilt = 1.0 # was 5.0; loosened to allow aggressive roll/pitch
+thrust = 1.0 # was 0.0; regularise toward hover thrust
+yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
+obstacle = 1000.0 # per-obstacle collision penalty
+floor = 500.0 # penalty weight for states below floor_z
+floor_z = 0.1 # height (m) below which the floor penalty applies
 
 [deploy]
 ### Settings only relevant for deployment
@@ -69,7 +88,7 @@ freq = 50               # Frequency of the environment's step function, in Hz
 sensor_range = 0.7      # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.
 control_mode = "attitude"  # Control mode of the environment. Can be either "state" or "attitude"
 [[env.kwargs]]
-freq = 100
+freq = 50
 sensor_range = 0.7
 control_mode = "attitude"
 
@@ -142,7 +161,7 @@ soft_start = true # enable/disable soft start
 [experiment.env]
 drone_radius = 0.12  # 86mm + safety margin
 obstacle_radius = 0.055  # 110mm diameter pipes
-gate_frame_radius = 0.08
+gate_frame_radius = 0.1 #ideal 0.08 but with buffer
 obstacle_length = 1.0
 
 [plot]

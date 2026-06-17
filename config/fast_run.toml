@@ -155,7 +155,7 @@ soft_start = true # enable/disable soft start
 [experiment.env]
 drone_radius = 0.12  # 86mm + safety margin
 obstacle_radius = 0.055  # 110mm diameter pipes
-gate_frame_radius = 0.08
+gate_frame_radius = 0.1 #ideal 0.08 but with buffer
 obstacle_length = 1.0
 
 [plot]

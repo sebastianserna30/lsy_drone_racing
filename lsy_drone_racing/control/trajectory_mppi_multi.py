@@ -9,10 +9,10 @@ from __future__ import annotations  # Python 3.10 type hints
 from typing import TYPE_CHECKING
 
 import numpy as np
-from scipy.interpolate import CubicSpline
+from ml_collections import ConfigDict
 
-from lsy_drone_racing.control.attitude_controller_v1 import (
-    AttitudeController_1 as SingleAttitudeController,
+from lsy_drone_racing.control.trajectory_mppi import (
+    AttitudeMPPIController as SingleAttitudeMPPIController,
 )
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 
-class AttitudeController(SingleAttitudeController):
+class AttitudeMPPIController(SingleAttitudeMPPIController):
     """Example of a controller using the collective thrust and attitude interface."""
 
     def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict):
@@ -33,6 +33,17 @@ class AttitudeController(SingleAttitudeController):
             config: The configuration of the environment.
         """
         self.rank = info["rank"]
+        
+        controller_cfg = config["controller"][self.rank]
+        # Convert to a plain dict first
+        config_dict = config.to_dict()
+
+        # Replace controller
+        config_dict["controller"] = controller_cfg
+
+        # Create a new ConfigDict
+        config = ConfigDict(config_dict)
+
         super().__init__({k: v[self.rank] for k, v in obs.items()}, info, config)
 
     def compute_control(
@@ -49,4 +60,22 @@ class AttitudeController(SingleAttitudeController):
             The orientation as roll, pitch, yaw angles, and the collective thrust
             [r_des, p_des, y_des, t_des] as a numpy array.
         """
-        return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
+        first_value = next(iter(obs.values()))
+
+        if first_value.ndim == 2:
+            return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
+        
+        return super().compute_control(obs, info)
+    
+    def step_callback(
+        self,
+        action: NDArray[np.floating] | None = None,
+        obs: dict[str, NDArray[np.floating]] | None = None,
+        reward: float | None = None,
+        terminated: bool | None = None,
+        truncated: bool | None = None,
+        info: dict | None = None,
+    ) -> bool:
+        """Increment the tick counter."""
+        return super().step_callback(action,{k: v[self.rank] for k, v in obs.items()})
+
