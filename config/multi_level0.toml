@@ -24,20 +24,21 @@ K = 5 # means
 action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 5.0 # was 5.0; target matches PPO lap time (3.20s)
+t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
 curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
 clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
 
 [controller.mppi.cost] # MPPI cost-function weights
 pos = 40.0 # position tracking
 z = 80.0 # extra penalty for altitude error
-vel = 1.0 # velocity tracking
+vel = 1.0 # velocity tracking (original 1.0)
 ang_vel = 0.0 # angular-velocity penalty (off)
 ang_acc = 0.0 # angular-acceleration penalty (off)
 tilt = 1.0 # was 5.0; loosened to allow aggressive roll/pitch
 thrust = 1.0 # was 0.0; regularise toward hover thrust
 yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
 obstacle = 1000.0 # per-obstacle collision penalty
+opp_drone = 10000.0 # per collision other drone penalty
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 
@@ -125,12 +126,12 @@ pos = [-1.5, -0.25, 1.55]
 pos = [-0.5, -0.75, 1.55]
 
 [[env.track.drones]]
-pos = [-1.5, 0.55, 0.01]
+pos = [-1.5, 0.85, 0.11]
 rpy = [0, 0, 0]
 vel = [0, 0, 0]
 ang_vel = [0, 0, 0]
 [[env.track.drones]]
-pos = [-1.5, 0.95, 0.01]
+pos = [-1.9, 0.75, 0.01]
 rpy = [0, 0, 0]
 vel = [0, 0, 0]
 ang_vel = [0, 0, 0]

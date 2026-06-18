@@ -136,6 +136,7 @@ class AttitudeMPPIController(Controller):
         )  # was 0.0; regularise toward hover thrust
         self.w_yaw = float(cost_cfg.get("yaw", 2.0))  # was 0.0; added to stabilise yaw oscillation
         self.w_obstacle = float(cost_cfg.get("obstacle", 1000.0))
+        self.w_opp_drone = float(cost_cfg.get("opp_drone", 2000.0))
         self.w_floor = float(cost_cfg.get("floor", 500.0))
         self.floor_z = float(cost_cfg.get("floor_z", 0.1))
         spline_cfg = mppi_cfg.get("spline", {})
@@ -269,11 +270,22 @@ class AttitudeMPPIController(Controller):
         # changedPractical: clamp query times so rollout never extrapolates past spline end
         query_times = np.clip(t + self.dt_array, 0.0, self._planner.t_total)
         des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(query_times)
+        #changedPractical
+        if "opponent_pos" in info:
+            opp_pos = info["opponent_pos"]
+            opp_vel = info["opponent_vel"]
+            opp_traj = opp_pos[None,:] + (opp_vel[None,:]*self.dt_array[:,None])
+        else:
+            opp_traj = np.zeros_like(des_pos)
+
+        self.opp_traj = np.array(opp_traj)
+            
         refs = {
             "pos": jnp.array(des_pos, device=self.sim.device),
             "vel": jnp.array(des_vel, device=self.sim.device),
             "acc": jnp.array(des_acc, device=self.sim.device),
             "yaw": jnp.array(des_yaw, device=self.sim.device),
+            "opp_pos": jnp.array(opp_traj, device=self.sim.device),
         }
 
         # 1. Update Step
