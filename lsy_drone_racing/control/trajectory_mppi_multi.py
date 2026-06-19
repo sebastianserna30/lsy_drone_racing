@@ -91,18 +91,30 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
     ) -> jnp.ndarray:
         """Compute the cost for a given state."""
         ## 6. Collision Cost (Safety)
+        safe_dist = self.initial_info["experiment"]["env"]["drone_radius"]*2.5 #2 would be theory and added buffer
+
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
         opp_pos = reference["opp_pos"][..., None, :]  # Shape: (1, 3)
         dist_drones = jnp.linalg.norm(pos - opp_pos, axis=-1)
-        opponent_drone_hits = jnp.where(
-            dist_drones
-            < self.initial_info["experiment"]["env"]["drone_radius"]*3, #2 would be theory and added buffer
-            1,
-            0,
-        )
+
+
+        binary_cost = False
+
+        if binary_cost:
+            opponent_drone_hits = jnp.where(
+                dist_drones
+                < safe_dist, 
+                1,
+                0,
+            )
+            coll_cost = self.w_opp_drone * jnp.sum(opponent_drone_hits, axis=-1)
+        else:
+            #smouth collsion cost using exponent
+            coll_cost = self.w_opp_drone_exp * jnp.exp(-(dist_drones / safe_dist) ** 2)
+
         use_collision_cost = True
         if use_collision_cost:
-            collosion_cost = self.w_opp_drone * jnp.sum(opponent_drone_hits, axis=-1)
+            collosion_cost = coll_cost
         else:
             collosion_cost = 0
 

@@ -137,6 +137,7 @@ class AttitudeMPPIController(Controller):
         self.w_yaw = float(cost_cfg.get("yaw", 2.0))  # was 0.0; added to stabilise yaw oscillation
         self.w_obstacle = float(cost_cfg.get("obstacle", 1000.0))
         self.w_opp_drone = float(cost_cfg.get("opp_drone", 2000.0))
+        self.w_opp_drone_exp = float(cost_cfg.get("opp_drone_exp", 2000.0))
         self.w_floor = float(cost_cfg.get("floor", 500.0))
         self.floor_z = float(cost_cfg.get("floor_z", 0.1))
         spline_cfg = mppi_cfg.get("spline", {})
