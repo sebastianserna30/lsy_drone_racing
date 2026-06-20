@@ -173,7 +173,6 @@ class AttitudeMPPIController(Controller):
             mppi_cfg.get("action_ema", 0.4)
         )  # blend: ema * new + (1-ema) * prev
 
-
         self._start_pos = initial_obs["pos"].copy()
         self._last_gates_pos = None
         self._last_gates_quat = None
@@ -231,20 +230,9 @@ class AttitudeMPPIController(Controller):
         self._t_start = 0.0
 
         if os.getenv("LOG_DRONE_DATA"):
-            self._log_buf = {
-                "t": [],
-                "pos": [],
-                "vel": [],
-                "action": [],
-                "des_pos": [],
-                "des_vel": [],
-                "min_cost": [],
-                "target_gate": [],
-                "cost_pos": [],
-                "cost_z": [],
-                "cost_vel": [],
-                "min_obs_dist": [],
-            }
+            # Buffer is populated lazily via setdefault in _log_step_costs; see that method
+            # for the logged keys (per-mode, per-term full-horizon rollout costs).
+            self._log_buf = {}
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict
@@ -271,16 +259,16 @@ class AttitudeMPPIController(Controller):
         # changedPractical: clamp query times so rollout never extrapolates past spline end
         query_times = np.clip(t + self.dt_array, 0.0, self._planner.t_total)
         des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(query_times)
-        #changedPractical
+        # changedPractical
         if "opponent_pos" in info:
             opp_pos = info["opponent_pos"]
             opp_vel = info["opponent_vel"]
-            opp_traj = opp_pos[None,:] + (opp_vel[None,:]*self.dt_array[:,None])
+            opp_traj = opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None])
         else:
             opp_traj = np.zeros_like(des_pos)
 
         self.opp_traj = np.array(opp_traj)
-            
+
         refs = {
             "pos": jnp.array(des_pos, device=self.sim.device),
             "vel": jnp.array(des_vel, device=self.sim.device),
@@ -295,7 +283,7 @@ class AttitudeMPPIController(Controller):
         # changedPractical
         self._rng_key, subkey = jax.random.split(self._rng_key)
 
-        new_means, new_sigmas, best_mode_idx, costs_grouped, positions_grouped = (
+        new_means, new_sigmas, best_mode_idx, costs_grouped, positions_grouped, mode_term_costs = (
             self._mppi_core_update(
                 subkey,
                 obs_device,
@@ -333,6 +321,7 @@ class AttitudeMPPIController(Controller):
         self.means = new_means
         self.costs = costs_grouped
         self.positions = positions_grouped
+        self.mode_term_costs = mode_term_costs  # per-mode best-sample cost breakdown
         action = np.asarray(best_action)  # back to CPU
         # changedPractical: EMA smoothing to damp inter-step oscillations from mode switching
         action = self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
@@ -342,32 +331,44 @@ class AttitudeMPPIController(Controller):
         )
 
         if self._log_buf is not None:
-            _pos = obs["pos"]
-            _des_p = np.asarray(des_pos[0])
-            _des_v = np.asarray(des_vel[0])
-            _pos_err = np.linalg.norm(_pos - _des_p)
-            _z_err = abs(_pos[2] - _des_p[2])
-            _vel_err = np.linalg.norm(obs["vel"] - _des_v)
-            _obs_arr = np.asarray(self.obstacles)
-            _min_obs = (
-                float(np.min(np.linalg.norm(_pos[:2] - _obs_arr[:, :2], axis=-1)))
-                if len(_obs_arr)
-                else np.inf
-            )
-            self._log_buf["t"].append(self._t)
-            self._log_buf["pos"].append(_pos.copy())
-            self._log_buf["vel"].append(obs["vel"].copy())
-            self._log_buf["action"].append(action.copy())
-            self._log_buf["des_pos"].append(_des_p)
-            self._log_buf["des_vel"].append(_des_v)
-            self._log_buf["min_cost"].append(float(np.min(np.asarray(self.costs))))
-            self._log_buf["target_gate"].append(int(obs.get("target_gate", -1)))
-            self._log_buf["cost_pos"].append(_pos_err**2 * self.w_pos)
-            self._log_buf["cost_z"].append(_z_err * self.w_z)
-            self._log_buf["cost_vel"].append(_vel_err**2 * self.w_vel)
-            self._log_buf["min_obs_dist"].append(_min_obs)
+            self._log_step_costs(obs, action)
 
         return action
+
+    def _log_step_costs(
+        self,
+        obs: dict[str, NDArray[np.floating]],
+        action: NDArray[np.floating],
+    ) -> None:
+        """Log the full-horizon rollout cost breakdown of the K parallel modes.
+
+        For each control step we record, per cost term, a length-K vector: the
+        horizon-summed cost of each mode's best (lowest-total) sample — i.e. the cost of
+        the trajectory that mode proposes. This is what the MPPI optimizer actually scores,
+        so it's the right signal for cost engineering / weight tuning. ``setdefault`` lets
+        subclass-specific terms (e.g. cost_opp_drone) appear without pre-declaring them.
+        """
+        terms = {k: np.asarray(v) for k, v in self.mode_term_costs.items()}  # each (K,)
+        costs_km = np.asarray(self.costs)  # (K, M) total per sample
+
+        fields = {
+            "t": self._t,
+            "pos": np.asarray(obs["pos"]).copy(),
+            "action": np.asarray(action).copy(),
+            "target_gate": int(obs.get("target_gate", -1)),
+            "best_mode_idx": int(self.best_mode_idx),
+            # per-mode totals: best sample per mode (K,) and the global best
+            "mode_cost_total": costs_km.min(axis=1),
+            "min_cost": float(costs_km.min()),
+        }
+        # per-mode, per-term horizon cost: each logged as a (K,) vector
+        for name, vec in terms.items():
+            fields[f"cost_{name}"] = vec
+        # total per mode summed from the logged terms (matches mode_cost_total)
+        fields["cost_total"] = np.sum([v for v in terms.values()], axis=0)
+
+        for key, val in fields.items():
+            self._log_buf.setdefault(key, []).append(val)
 
     def step_callback(
         self,
@@ -415,7 +416,7 @@ class AttitudeMPPIController(Controller):
 
     def episode_callback(self):
         """Save logged data to disk if LOG_DRONE_DATA is set."""
-        if self._log_buf is None or not self._log_buf["t"]:
+        if self._log_buf is None or not self._log_buf.get("t"):
             return
         log_dir = os.getenv("LOG_DRONE_DATA", ".")
         out_path = (
@@ -514,13 +515,20 @@ class AttitudeMPPIController(Controller):
         # 2. Reshape to (N, K*M, 4)
         controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, 4)
 
-        costs_flat, positions_flat = self.rollout_sim(
+        costs_flat, positions_flat, terms_flat = self.rollout_sim(
             obs, (controls_flat, refs, self.obstacles, self.gate_frame_obstacles)
         )
 
         # Reshape costs back to groups: (K, M)
         costs_grouped = costs_flat.reshape(self.K, self.M)
         positions_grouped = positions_flat.transpose(1, 0, 2, 3).reshape(self.K, self.M, self.N, 3)
+        # Per-mode cost breakdown: take each mode's best (lowest-total) sample, the
+        # trajectory that mode "proposes". mode_term_costs[name] has shape (K,).
+        best_sample = jnp.argmin(costs_grouped, axis=1)  # (K,)
+        k_idx = jnp.arange(self.K)
+        mode_term_costs = {
+            name: v.reshape(self.K, self.M)[k_idx, best_sample] for name, v in terms_flat.items()
+        }
 
         # --- 5. PER-MODE UPDATE (The Core Logic) ---
         # We define a function that updates ONE mean, then vmap it over K
@@ -581,7 +589,14 @@ class AttitudeMPPIController(Controller):
         # We pick the mean that had the lowest cost elite.
         best_mode_idx = jnp.argmin(cluster_best_costs)
 
-        return updated_means, updated_sigmas, best_mode_idx, costs_grouped, positions_grouped
+        return (
+            updated_means,
+            updated_sigmas,
+            best_mode_idx,
+            costs_grouped,
+            positions_grouped,
+            mode_term_costs,
+        )
 
     def get_truncated_normal_jax(
         self,
@@ -655,8 +670,13 @@ class AttitudeMPPIController(Controller):
         reference: dict[str, jnp.ndarray],
         obstacles: jnp.ndarray,
         gate_frame_obstacles: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Compute the cost for a given state."""
+    ) -> dict[str, jnp.ndarray]:
+        """Compute the per-term cost for a given state.
+
+        Returns a dict mapping term name -> cost of shape (n_rollouts,). The optimizer
+        sums these; keeping them separate lets us accumulate each term over the horizon
+        and log the per-mode cost breakdown for cost engineering.
+        """
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
         vel = data.states.vel[:, 0, :]  # Shape: (n_rollouts, 3)
         ang_vel = data.states.ang_vel[:, 0, :]  # Shape: (n_rollouts, 3)
@@ -680,7 +700,6 @@ class AttitudeMPPIController(Controller):
         ang_vel_cost = ang_vel_error**2 * self.w_ang_vel
         ang_acc_error = jnp.linalg.norm(ang_acc, axis=-1)
         ang_acc_cost = ang_acc_error**2 * self.w_ang_acc
-        state_cost = pos_cost + vel_cost + ang_vel_cost + ang_acc_cost + z_cost
 
         ## 2. Control Cost (Efficiency + Stability)
         # Penalize high tilt (roll/pitch)
@@ -695,7 +714,6 @@ class AttitudeMPPIController(Controller):
         yaw_cost = (
             cmd[:, 2] - des_yaw
         ) ** 2 * self.w_yaw  # changedPractical: was 0.0; added to stabilise yaw oscillation
-        input_cost = tilt_cost + thrust_cost + yaw_cost
 
         ## 3. Obstacle Cost (Safety)
         obs_diff = jnp.linalg.norm(pos[..., None, :2] - obstacles[None, :, :2], axis=-1)
@@ -728,7 +746,20 @@ class AttitudeMPPIController(Controller):
             pos[..., 2] < self.floor_z, (self.floor_z - pos[..., 2]) ** 2 * self.w_floor, 0.0
         )
 
-        return state_cost + input_cost + obstacle_cost + gate_obstacle_cost + floor_cost
+        # Per-term costs, each shape (n_rollouts,). The optimizer/logger sum these.
+        return {
+            "pos": pos_cost,
+            "z": z_cost,
+            "vel": vel_cost,
+            "ang_vel": ang_vel_cost,
+            "ang_acc": ang_acc_cost,
+            "tilt": tilt_cost,
+            "thrust": thrust_cost,
+            "yaw": yaw_cost,
+            "obstacle": obstacle_cost,
+            "gate_obstacle": gate_obstacle_cost,
+            "floor": floor_cost,
+        }
 
     @partial(jax.jit, static_argnames=["self"])
     def apply_input(
@@ -748,8 +779,8 @@ class AttitudeMPPIController(Controller):
             )
         )
         next_data = self.step_fn(data, self.sim.freq // self.sim.control_freq)
-        cost = self.compute_cost(next_data, ref, obstacles, gate_frame_obstacles)
-        return next_data, (cost, next_data.states.pos)
+        cost_terms = self.compute_cost(next_data, ref, obstacles, gate_frame_obstacles)
+        return next_data, (cost_terms, next_data.states.pos)
 
     @partial(jax.jit, static_argnames=["self"])
     def rollout_sim(
@@ -774,12 +805,15 @@ class AttitudeMPPIController(Controller):
             gate_frame_obstacles[None], (self.N,) + gate_frame_obstacles.shape
         )
 
-        _, (costs, positions) = scan(
+        _, (cost_terms, positions) = scan(
             self.apply_input,
             data,
             (controls_flat, refs, obstacles_tiled, gate_frame_obstacles_tiled),
         )
-        return jnp.sum(costs, axis=0), positions
+        # cost_terms: dict of (N, n_rollouts). Sum each term over the horizon -> (n_rollouts,).
+        terms_summed = {k: jnp.sum(v, axis=0) for k, v in cost_terms.items()}
+        total = sum(terms_summed.values())  # (n_rollouts,)
+        return total, positions, terms_summed
 
     # changedPractical
 
