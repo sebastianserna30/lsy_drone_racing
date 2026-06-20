@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 
-
 class AttitudeMPPIController(SingleAttitudeMPPIController):
     """Example of a controller using the collective thrust and attitude interface."""
 
@@ -42,8 +41,8 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         if self.rank == 0:
             self.opponent = 1
         else:
-            self.opponent = 0 
-        
+            self.opponent = 0
+
         controller_cfg = config["controller"][self.rank]
         # Convert to a plain dict first
         config_dict = config.to_dict()
@@ -73,14 +72,14 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         first_value = next(iter(obs.values()))
 
         if first_value.ndim == 2:
-            #This is the normal mode for multilevel where other drone is pressent in observations
+            # This is the normal mode for multilevel where other drone is pressent in observations
             info["opponent_pos"] = obs["pos"][self.opponent]
             info["opponent_vel"] = obs["vel"][self.opponent]
             return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
-        
-        #This backup is needed for the warmup of the controller
+
+        # This backup is needed for the warmup of the controller
         return super().compute_control(obs, info)
-    
+
     @partial(jax.jit, static_argnames=["self"])
     def compute_cost(
         self,
@@ -91,26 +90,22 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
     ) -> jnp.ndarray:
         """Compute the cost for a given state."""
         ## 6. Collision Cost (Safety)
-        safe_dist = self.initial_info["experiment"]["env"]["drone_radius"]*2.5 #2 would be theory and added buffer
+        safe_dist = (
+            self.initial_info["experiment"]["env"]["drone_radius"] * 2.5
+        )  # 2 would be theory and added buffer
 
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
         opp_pos = reference["opp_pos"][..., None, :]  # Shape: (1, 3)
         dist_drones = jnp.linalg.norm(pos - opp_pos, axis=-1)
 
-
         binary_cost = False
 
         if binary_cost:
-            opponent_drone_hits = jnp.where(
-                dist_drones
-                < safe_dist, 
-                1,
-                0,
-            )
+            opponent_drone_hits = jnp.where(dist_drones < safe_dist, 1, 0)
             coll_cost = self.w_opp_drone * jnp.sum(opponent_drone_hits, axis=-1)
         else:
-            #smouth collsion cost using exponent
-            coll_cost = self.w_opp_drone_exp * jnp.exp(-(dist_drones / safe_dist) ** 2)
+            # smooth collsion cost using exponent
+            coll_cost = self.w_opp_drone_exp * jnp.exp(-((dist_drones / safe_dist) ** 2))
 
         use_collision_cost = True
         if use_collision_cost:
@@ -118,8 +113,10 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         else:
             collosion_cost = 0
 
-        return collosion_cost + super().compute_cost(data , reference, obstacles, gate_frame_obstacles)
-    
+        return collosion_cost + super().compute_cost(
+            data, reference, obstacles, gate_frame_obstacles
+        )
+
     def step_callback(
         self,
         action: NDArray[np.floating] | None = None,
@@ -130,11 +127,9 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         info: dict | None = None,
     ) -> bool:
         """Increment the tick counter."""
-        return super().step_callback(action,{k: v[self.rank] for k, v in obs.items()})
-    
+        return super().step_callback(action, {k: v[self.rank] for k, v in obs.items()})
+
     def render_callback(self, sim: Sim):
         """Visualize the desired trajectory and the current setpoint."""
         super().render_callback(sim)
         draw_line(sim, self.opp_traj, rgba=(0.0, 0.0, 1.0, 1.0))
-        
-
