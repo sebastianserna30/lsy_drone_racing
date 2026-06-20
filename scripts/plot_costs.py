@@ -11,7 +11,9 @@ each of the K parallel modes' best sample (the trajectory that mode proposes). T
 signal the MPPI optimizer scores, so it's what you want for cost engineering / weight tuning.
 
     --mode winner  (default): break down the executed (winning) mode's cost over time.
-    --mode all:               compare the K modes' total cost (one line per mode).
+    --mode means:             side-by-side comparison of the K means — cost spread (noise
+                              diagnostic) and which mean is executed each step (smoothing).
+    --mode all:               per-term grid, one line per mode.
 """
 
 from __future__ import annotations
@@ -178,6 +180,81 @@ def plot_all_modes(mppi: dict, present: list, t: np.ndarray, best: np.ndarray, t
     return fig
 
 
+def plot_means(mppi: dict, present: list, t: np.ndarray, best: np.ndarray, tg):
+    """Side-by-side comparison of the K means (cost spread + selection over time).
+
+    Two diagnostics:
+    - cost spread across means  -> if the means barely differ, sampling noise is too low
+      (modes collapsed); a healthy spread means the modes explore distinct trajectories.
+    - which mean is executed each step -> rapid switching suggests more smoothing is needed.
+    """
+    totals = np.asarray(mppi["cost_total"], dtype=float)  # (T, K)
+    n_modes = totals.shape[1]
+    cmap = plt.get_cmap("tab10")
+    mcol = [cmap(k % 10) for k in range(n_modes)]
+
+    counts = np.bincount(best, minlength=n_modes)
+    frac = counts / max(len(best), 1)
+    n_switch = int(np.sum(np.diff(best) != 0))
+    switch_rate = n_switch / max(len(best) - 1, 1)
+
+    import matplotlib.gridspec as gridspec
+
+    fig = plt.figure(figsize=(4.2 * n_modes, 11))
+    gs = gridspec.GridSpec(3, n_modes, height_ratios=[2.2, 1.0, 2.6], hspace=0.32, wspace=0.25)
+    fig.suptitle(f"MPPI mean comparison (K={n_modes})", fontsize=14)
+
+    # ── Row 0: total cost per mean over time (cost spread → noise diagnostic) ──
+    ax_tot = fig.add_subplot(gs[0, :])
+    ax_tot.set_title("Total full-horizon cost per mean  (spread → sampling-noise diagnostic)")
+    ax_tot.set_ylabel("cost")
+    for k in range(n_modes):
+        ax_tot.plot(t, totals[:, k], color=mcol[k], lw=1.1, label=f"mean {k} ({frac[k] * 100:.0f}%)")
+    ax_tot.set_yscale("log")
+    if tg is not None:
+        mark_gates(ax_tot, t, tg)
+    ax_tot.legend(fontsize=8, ncol=n_modes, loc="upper right")
+    ax_tot.grid(True, alpha=0.3, which="both")
+
+    # ── Row 1: which mean was executed each step (switching → smoothing diagnostic) ──
+    ax_sel = fig.add_subplot(gs[1, :], sharex=ax_tot)
+    ax_sel.set_title(
+        f"Executed mean over time  —  {n_switch} switches "
+        f"({switch_rate * 100:.0f}% of steps)  → smoothing diagnostic"
+    )
+    ax_sel.set_ylabel("mean idx")
+    ax_sel.set_xlabel("t (s)")
+    ax_sel.step(t, best, where="post", color="0.6", lw=0.8, zorder=1)
+    ax_sel.scatter(t, best, c=[mcol[k] for k in best], s=14, zorder=2)
+    ax_sel.set_yticks(range(n_modes))
+    ax_sel.set_ylim(-0.5, n_modes - 0.5)
+    ax_sel.grid(True, alpha=0.3, axis="x")
+
+    # ── Row 2: per-mean stacked term breakdown, side by side (shared y) ───────
+    stacks = [np.array([np.asarray(mppi[key], dtype=float)[:, k] for key, _, _ in present])
+              for k in range(n_modes)]  # list of (n_terms, T)
+    ymax = max((s.sum(axis=0).max() for s in stacks), default=1.0) * 1.05
+    for k in range(n_modes):
+        ax = fig.add_subplot(gs[2, k], sharex=ax_tot)
+        ax.set_title(f"mean {k}", color=mcol[k])
+        ax.stackplot(
+            t, *stacks[k],
+            labels=[lbl for _, lbl, _ in present],
+            colors=[c for _, _, c in present],
+            alpha=0.85,
+        )
+        ax.set_ylim(0, ymax)
+        ax.grid(True, alpha=0.3)
+        if k == 0:
+            ax.set_ylabel("stacked cost")
+            ax.legend(fontsize=6, ncol=2, loc="upper right")
+        else:
+            ax.tick_params(labelleft=False)
+        ax.set_xlabel("t (s)")
+
+    return fig
+
+
 def main(log_dir: str = "/tmp/logs", mode: str = "winner") -> None:
     """Plot the MPPI per-mode cost breakdown from mppi_data.npz in log_dir."""
     d = Path(log_dir)
@@ -195,7 +272,10 @@ def main(log_dir: str = "/tmp/logs", mode: str = "winner") -> None:
     tg = mppi.get("target_gate")
     present = [(k, lbl, c) for k, lbl, c in COST_TERMS if k in mppi]
 
-    if mode == "all":
+    if mode == "means":
+        plot_means(mppi, present, t, best, tg)
+        out = d / "costs_means.png"
+    elif mode == "all":
         plot_all_modes(mppi, present, t, best, tg)
         out = d / "costs_modes.png"
     else:
@@ -213,8 +293,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         default="winner",
-        choices=["winner", "all"],
-        help="winner: breakdown of executed mode; all: compare the K modes",
+        choices=["winner", "means", "all"],
+        help="winner: breakdown of executed mode; means: side-by-side mean comparison "
+        "(cost spread + selection over time); all: per-term grid across modes",
     )
     args = parser.parse_args()
     main(args.log_dir, args.mode)
