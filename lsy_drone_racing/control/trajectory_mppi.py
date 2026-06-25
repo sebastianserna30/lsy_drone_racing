@@ -86,6 +86,10 @@ class AttitudeMPPIController(Controller):
         self.n_samples = mppi_cfg["n_samples"]
         self.K = mppi_cfg["K"]
         self.M = self.n_samples // self.K  # samples per mode
+        # changedPractical: sampled control dim is now 5 = [roll, pitch, yaw, thrust, v_theta].
+        # The sim only ever receives the first 4; v_theta is the MPCC progress speed integrated
+        # in the rollout. Use self.num_inputs wherever the control dim was previously hardcoded as 4.
+        self.num_inputs = 5
 
         # changedPractical
         self._t = 0.0
@@ -110,7 +114,7 @@ class AttitudeMPPIController(Controller):
         self.step_fn = self.sim.build_step_fn()
 
         self.noise_sigmas = jnp.full(
-            (self.K, self.N, 4), fill_value=mppi_cfg["noise_sigma"], device=self.sim.device
+            (self.K, self.N, self.num_inputs), fill_value=mppi_cfg["noise_sigma"], device=self.sim.device
         )
         self.temperature = mppi_cfg["temperature"]
         self.elite_percentage = mppi_cfg["elite_percentage"]
@@ -140,14 +144,33 @@ class AttitudeMPPIController(Controller):
         self.w_opp_drone_exp = float(cost_cfg.get("opp_drone_exp", 2000.0))
         self.w_floor = float(cost_cfg.get("floor", 500.0))
         self.floor_z = float(cost_cfg.get("floor_z", 0.1))
+        # changedPractical: MPCC contour/lag/progress weights. The reference is
+        # reparameterized from time t to arc-length progress theta (see _build_theta_lut).
+        # Each rollout carries its own theta, advanced by a sampled v_theta (5th control
+        # channel). pos error is split into lag (along path tangent) and contour
+        # (perpendicular); progress reward (-w_progress * v_theta) pushes the drone forward.
+        self.w_contour = float(cost_cfg.get("contour", 40.0))  # off-path penalty
+        self.w_lag = float(cost_cfg.get("lag", 800.0))  # ahead/behind-of-theta penalty (heavy)
+        self.w_progress = float(cost_cfg.get("progress", 2.0))  # mu: reward for advancing theta
         spline_cfg = mppi_cfg.get("spline", {})
         self._spline_t_total = float(spline_cfg.get("t_total", 4.1))
         self._spline_curvature_weight = float(spline_cfg.get("curvature_weight", 2.0))
         self._spline_clearance = float(spline_cfg.get("clearance", 0.22))
+        self._lut_samples = int(spline_cfg.get("lut_samples", 1500))
+        # changedPractical: v_theta (progress speed, m/s) sampling params. Separate from the
+        # attitude/thrust noise_sigma because it has different units. Bounds: never reverse
+        # (>=0), cap above the planner's v_max (4.5) for headroom.
+        self.v_theta_init = float(mppi_cfg.get("v_theta_init", 2.0))  # ~s_total/t_total
+        self.v_theta_max = float(mppi_cfg.get("v_theta_max", 6.0))
+        self.v_theta_sigma = float(mppi_cfg.get("v_theta_sigma", 0.5))
+        # v_theta channel gets its own (larger) noise scale — different units from rad/thrust
+        self.noise_sigmas = self.noise_sigmas.at[:, :, 4].set(self.v_theta_sigma)
 
-        # changedPractical: initialise thrust channel to hover so MPPI starts from a stable baseline
-        _init = jnp.zeros((self.K, self.N, 4), device=self.sim.device)
-        self.mean_controls = _init.at[:, :, 3].set(HOVER_THRUST)
+        # changedPractical: initialise thrust channel to hover so MPPI starts from a stable
+        # baseline, and v_theta channel to a nominal forward progress speed
+        _init = jnp.zeros((self.K, self.N, self.num_inputs), device=self.sim.device)
+        _init = _init.at[:, :, 3].set(HOVER_THRUST)
+        self.mean_controls = _init.at[:, :, 4].set(self.v_theta_init)
 
         # Shape: (Num_Obstacles, 3)
         # changedPractical
@@ -162,10 +185,14 @@ class AttitudeMPPIController(Controller):
         # self.drone_params = load_params("first_principles", initial_info["drone_model"])
         self.drone_params = load_params("first_principles", initial_info["drone"]["model"])
         self.drone_mass = self.drone_params["mass"]
-        self.act_low = -jnp.ones(4, device=self.sim.device) * jnp.pi / 2
+        # changedPractical: 5-dim bounds — channel 4 is v_theta (progress speed, m/s),
+        # bounded [0, v_theta_max] so the drone never runs the reference backward
+        self.act_low = -jnp.ones(self.num_inputs, device=self.sim.device) * jnp.pi / 2
         self.act_low = self.act_low.at[3].set(self.drone_params["thrust_min"] * 4)
-        self.act_high = jnp.ones(4, device=self.sim.device) * jnp.pi / 2
+        self.act_low = self.act_low.at[4].set(0.0)
+        self.act_high = jnp.ones(self.num_inputs, device=self.sim.device) * jnp.pi / 2
         self.act_high = self.act_high.at[3].set(self.drone_params["thrust_max"] * 4)
+        self.act_high = self.act_high.at[4].set(self.v_theta_max)
         self.thrust = np.zeros(4)
         # changedPractical: EMA filter on executed action to damp mode-switching oscillations
         self._prev_action = np.array([0.0, 0.0, 0.0, HOVER_THRUST])  # [roll, pitch, yaw, thrust]
@@ -187,6 +214,14 @@ class AttitudeMPPIController(Controller):
             ],  # changedPractical: obs1 at (1.0,0.25) is 0.03m from no-detour spline
             clearance=self._spline_clearance,  # changedPractical: 0.16-0.21 flips obs3 detour to SW (wrong side, path 8.0m); 0.22 stays NE (path 7.74m, min_obs 0.21m)
         )
+
+        # changedPractical: build the arc-length LUT for the MPCC reparameterization. The spline
+        # is fixed at reset (planner is never replanned), so the LUT can be baked into the JIT'd
+        # cost as trace-time constants via self — no need to thread it through the call chain like
+        # `obstacles` (which DO change at level 2).
+        self._build_theta_lut(self._lut_samples)
+        # committed progress along the path (arc length, m). Rollouts start each horizon here.
+        self._theta = 0.0
 
         self._finished = False
         # changedPractical
@@ -229,6 +264,7 @@ class AttitudeMPPIController(Controller):
         # TODO: Check this before real-hardware test;
         self._t = 0.0
         self._t_start = 0.0
+        self._theta = 0.0  # changedPractical: drop warmup progress so the first real step starts at theta=0
 
         if os.getenv("LOG_DRONE_DATA"):
             self._log_buf = {
@@ -245,6 +281,55 @@ class AttitudeMPPIController(Controller):
                 "cost_vel": [],
                 "min_obs_dist": [],
             }
+
+    def _build_theta_lut(self, n_samples: int) -> None:
+        """Reparameterize the (time-based) spline to arc-length progress theta; cache a LUT.
+
+        Densely sample the planner's position spline in time, accumulate segment lengths to
+        get arc length (= theta), and store position + unit-tangent tables keyed on theta.
+        Inside the rollout, ref(theta) is recovered with jnp.interp (see _ref_at_theta). This is
+        the JAX/MPPI analog of basic_mpcc.py's cs.interpolant LUTs, but keyed on arc length
+        (so v_theta has units m/s) instead of time.
+        """
+        t_dense = np.linspace(0.0, self._planner.t_total, n_samples)
+        pos = np.asarray(self._planner._pos_spline(t_dense))  # (n, 3)
+        seg = np.linalg.norm(np.diff(pos, axis=0), axis=1)
+        s = np.concatenate([[0.0], np.cumsum(seg)])  # arc-length grid = theta, (n,)
+        vel = np.asarray(self._planner._vel_spline(t_dense))
+        tangent = vel / np.clip(np.linalg.norm(vel, axis=1, keepdims=True), 1e-9, None)
+        self._s_total = float(s[-1])
+        # device copies baked into the JIT'd cost
+        self._theta_grid = jnp.asarray(s, device=self.sim.device)
+        self._ref_pos_lut = jnp.asarray(pos, device=self.sim.device)
+        self._ref_tan_lut = jnp.asarray(tangent, device=self.sim.device)
+        # host copies for logging / rendering
+        self._theta_grid_np = s
+        self._ref_pos_np = pos
+
+    def _ref_at_theta(self, theta: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """LUT lookup: reference position and unit path tangent at progress theta (arc length).
+
+        theta is a scalar; vmap over rollouts. Clipped to [0, s_total] so the rollout never
+        extrapolates past the path ends (mirrors the query_times clamp in compute_control).
+        """
+        tg = self._theta_grid
+        theta = jnp.clip(theta, tg[0], tg[-1])
+        pos = jnp.stack(
+            [
+                jnp.interp(theta, tg, self._ref_pos_lut[:, 0]),
+                jnp.interp(theta, tg, self._ref_pos_lut[:, 1]),
+                jnp.interp(theta, tg, self._ref_pos_lut[:, 2]),
+            ]
+        )
+        tan = jnp.stack(
+            [
+                jnp.interp(theta, tg, self._ref_tan_lut[:, 0]),
+                jnp.interp(theta, tg, self._ref_tan_lut[:, 1]),
+                jnp.interp(theta, tg, self._ref_tan_lut[:, 2]),
+            ]
+        )
+        tan = tan / jnp.clip(jnp.linalg.norm(tan), 1e-9, None)
+        return pos, tan
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict
@@ -295,11 +380,16 @@ class AttitudeMPPIController(Controller):
         # changedPractical
         self._rng_key, subkey = jax.random.split(self._rng_key)
 
+        # changedPractical: MPCC — every rollout starts the horizon at the committed progress
+        # self._theta (arc length, m), then integrates its own sampled v_theta forward.
+        theta0 = jnp.full((self.n_samples,), self._theta, device=self.sim.device)
+
         new_means, new_sigmas, best_mode_idx, costs_grouped, positions_grouped = (
             self._mppi_core_update(
                 subkey,
                 obs_device,
                 refs,
+                theta0,
                 self.mean_controls,  # Shape: (K, Horizon, U)
                 self.noise_sigmas,  # Shape: (K, Horizon, U)
             )
@@ -307,7 +397,7 @@ class AttitudeMPPIController(Controller):
 
         # 2. Extract Action from the "Winner" Mode
         # We only execute the action from the best cluster
-        best_action = new_means[best_mode_idx, 0]
+        best_action = new_means[best_mode_idx, 0]  # 5-dim: [roll, pitch, yaw, thrust, v_theta]
 
         # 3. Receding Horizon Update (Shift & Interpolate)
         # We need to shift ALL K means, not just the active one.
@@ -333,10 +423,20 @@ class AttitudeMPPIController(Controller):
         self.means = new_means
         self.costs = costs_grouped
         self.positions = positions_grouped
-        action = np.asarray(best_action)  # back to CPU
+        # changedPractical: split the 5-dim winner into the 4 real attitude/thrust commands and
+        # the progress speed v_theta. Only the 4 real channels are EMA-smoothed and returned to
+        # the env; v_theta is internal and used to advance the committed progress self._theta.
+        full_action = np.asarray(best_action)  # back to CPU, 5-dim
+        v_theta_cmd = float(full_action[4])
+        action = full_action[:4]
         # changedPractical: EMA smoothing to damp inter-step oscillations from mode switching
         action = self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
         self._prev_action = action
+        # commit progress: advance theta by the executed v_theta over one control cycle
+        self._theta = float(min(self._theta + v_theta_cmd * self.ctrl_dt, self._s_total))
+        self.v_theta_cmd = v_theta_cmd  # store for logging / debugging
+        if self._theta >= self._s_total - 1e-3:
+            self._finished = True
         self.thrust += (
             self.drone_params["thrust_dyn_coef"] * (action[3] - self.thrust) * self.ctrl_dt
         )
@@ -439,13 +539,15 @@ class AttitudeMPPIController(Controller):
         key: jax.Array,
         obs: dict[str, jnp.ndarray],
         refs: dict[str, jnp.ndarray],
+        theta0: jnp.ndarray,
         current_means: jnp.ndarray,
         noise_sigmas: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Internal MPPI update: sample, roll out, evaluate costs, update means.
 
-        current_means: (K, Horizon, 4) - K different control strategies
-        noise_sigmas: (K, Horizon, 4) - Adaptive variance for each strategy
+        current_means: (K, Horizon, nu) - K different control strategies
+        noise_sigmas: (K, Horizon, nu) - Adaptive variance for each strategy
+        theta0: (n_samples,) - starting progress (arc length) for each rollout
         """
         # --- 1. PREPARE BOUNDS ---
         # Shape: (K, Horizon, 4) -> Broadcast for sampling later
@@ -475,7 +577,7 @@ class AttitudeMPPIController(Controller):
                 sd=k_sigma,
                 x_min=k_lb[None, ...],
                 x_max=k_ub[None, ...],
-                shape=(self.M, self.N, 4),
+                shape=(self.M, self.N, self.num_inputs),
             )
             return k_noise
 
@@ -486,7 +588,7 @@ class AttitudeMPPIController(Controller):
         # --- 3. NOISE SMOOTHING ---
         # Apply beta smoothing. We can flatten K and M dimensions for this operation
         # or vmap twice. Flattening is easier.
-        noise_flat = noise.reshape(-1, self.N, 4)  # (N, H, 4)
+        noise_flat = noise.reshape(-1, self.N, self.num_inputs)  # (N, H, num_inputs)
 
         def smooth_scan(carry: jnp.ndarray, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
             new_val = self.beta * carry + (1 - self.beta) * x
@@ -495,14 +597,14 @@ class AttitudeMPPIController(Controller):
         # Initialize smooth scan with zeros
         _, noise_flat = jax.lax.scan(
             lambda c, x: vmap(smooth_scan)(c, x),
-            jnp.zeros((noise_flat.shape[0], 4)),
-            # jnp.ones((noise_flat.shape[0], 4)) * noise_flat[:, 0, :],
+            jnp.zeros((noise_flat.shape[0], self.num_inputs)),
+            # jnp.ones((noise_flat.shape[0], self.num_inputs)) * noise_flat[:, 0, :],
             noise_flat.transpose(1, 0, 2),
         )
         noise_flat = noise_flat.transpose(1, 0, 2)
 
-        # Reshape back to grouped format: (K, M, H, 4)
-        noise = noise_flat.reshape(self.K, self.M, self.N, 4)
+        # Reshape back to grouped format: (K, M, H, nu)
+        noise = noise_flat.reshape(self.K, self.M, self.N, self.num_inputs)
 
         # --- 4. ROLLOUTS ---
         # Calculate candidate controls: Mean[k] + Noise[k, m]
@@ -510,12 +612,12 @@ class AttitudeMPPIController(Controller):
         candidate_controls = current_means[:, None, ...] + noise
 
         # Flatten for the physics engine (Physics doesn't care about K clusters)
-        # 1. Transpose from (K, M, N, 4) -> (N, K, M, 4)
-        # 2. Reshape to (N, K*M, 4)
-        controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, 4)
+        # 1. Transpose from (K, M, N, nu) -> (N, K, M, nu)
+        # 2. Reshape to (N, K*M, nu)
+        controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, self.num_inputs)
 
         costs_flat, positions_flat = self.rollout_sim(
-            obs, (controls_flat, refs, self.obstacles, self.gate_frame_obstacles)
+            obs, theta0, (controls_flat, refs, self.obstacles, self.gate_frame_obstacles)
         )
 
         # Reshape costs back to groups: (K, M)
@@ -652,35 +754,44 @@ class AttitudeMPPIController(Controller):
     def compute_cost(
         self,
         data: SimData,
+        theta: jnp.ndarray,
+        v_theta: jnp.ndarray,
         reference: dict[str, jnp.ndarray],
         obstacles: jnp.ndarray,
         gate_frame_obstacles: jnp.ndarray,
     ) -> jnp.ndarray:
-        """Compute the cost for a given state."""
+        """Compute the cost for a given state (MPCC contour/lag/progress formulation).
+
+        theta: (n_rollouts,) current progress (arc length) of each rollout.
+        v_theta: (n_rollouts,) progress speed of each rollout (for the progress reward).
+        """
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
-        vel = data.states.vel[:, 0, :]  # Shape: (n_rollouts, 3)
         ang_vel = data.states.ang_vel[:, 0, :]  # Shape: (n_rollouts, 3)
         ang_acc = data.states_deriv.ang_vel[:, 0, :]  # Shape: (n_rollouts, 3)
-        des_pos = reference["pos"][..., None, :]  # Shape: (1, 3)
-        des_vel = reference["vel"][..., None, :]  # Shape: (1, 3)
-        des_yaw = reference["yaw"][..., None]  # Shape: (1,)
+        des_yaw = reference["yaw"][..., None]  # Shape: (1,) — nominally 0
         cmd = data.controls.attitude.staged_cmd[:, 0, :]  # Shape: (n_rollouts, 4)
 
-        ## 1. State Cost (Tracking)
-        pos_error = jnp.linalg.norm(pos - des_pos, axis=-1)
-        # pos_cost = pos_error**2 * 10.0
-        # changedPractical
-        pos_cost = pos_error**2 * self.w_pos
-        z_cost = (
-            jnp.abs(pos[..., 2] - des_pos[..., 2]) * self.w_z
-        )  # Extra penalty for altitude error
-        vel_error = jnp.linalg.norm(vel - des_vel, axis=-1)
-        vel_cost = vel_error**2 * self.w_vel
+        ## 1. MPCC tracking cost — contour + lag + progress (replaces pos/vel tracking)
+        # Reference position and unit path tangent at each rollout's own theta (LUT lookup).
+        ref_pos, tangent = vmap(self._ref_at_theta)(theta)  # (n_rollouts, 3) each
+        err = pos - ref_pos  # (n_rollouts, 3)
+        # Lag error: signed component of err ALONG the path tangent (ahead +, behind -).
+        e_lag = jnp.sum(tangent * err, axis=-1)  # (n_rollouts,)
+        # Contour error: component PERPENDICULAR to the path (off-track distance).
+        e_con_vec = err - e_lag[:, None] * tangent  # (n_rollouts, 3)
+        lag_cost = e_lag**2 * self.w_lag
+        contour_cost = jnp.sum(e_con_vec**2, axis=-1) * self.w_contour
+        # Extra altitude penalty toward the reference height (kept from the old cost).
+        z_cost = jnp.abs(pos[..., 2] - ref_pos[..., 2]) * self.w_z
+        # Progress reward: advancing theta lowers cost (this is what removes the t_total ceiling).
+        progress_cost = -self.w_progress * v_theta
         ang_vel_error = jnp.linalg.norm(ang_vel, axis=-1)
         ang_vel_cost = ang_vel_error**2 * self.w_ang_vel
         ang_acc_error = jnp.linalg.norm(ang_acc, axis=-1)
         ang_acc_cost = ang_acc_error**2 * self.w_ang_acc
-        state_cost = pos_cost + vel_cost + ang_vel_cost + ang_acc_cost + z_cost
+        state_cost = (
+            lag_cost + contour_cost + z_cost + progress_cost + ang_vel_cost + ang_acc_cost
+        )
 
         ## 2. Control Cost (Efficiency + Stability)
         # Penalize high tilt (roll/pitch)
@@ -732,30 +843,47 @@ class AttitudeMPPIController(Controller):
 
     @partial(jax.jit, static_argnames=["self"])
     def apply_input(
-        self, data: SimData, info: tuple[jnp.ndarray, dict[str, jnp.ndarray]]
-    ) -> tuple[SimData, jnp.ndarray]:
-        """Roll out the sim for one step.
+        self,
+        carry: tuple[SimData, jnp.ndarray],
+        info: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray],
+    ) -> tuple[tuple[SimData, jnp.ndarray], jnp.ndarray]:
+        """Roll out the sim for one step and advance the MPCC progress theta.
 
         Args:
-            data: Initial sim state.
-            info: Tuple of (cmd, ref, obstacles).
+            carry: Tuple of (sim data, theta) where theta is (n_rollouts,) progress (arc length).
+            info: Tuple of (cmd5, ref, obstacles, gate_frame_obstacles). cmd5 is (n_rollouts, 5):
+                the first 4 channels are the attitude/thrust command sent to the sim; the 5th is
+                v_theta, the progress speed used to integrate theta.
         """
+        data, theta = carry
         cmd, ref, obstacles, gate_frame_obstacles = info
-        # Step sim with input
+        v_theta = cmd[:, 4]  # (n_rollouts,)
+        cmd4 = cmd[:, :4]  # only the real attitude/thrust channels go to the sim
+        # Integrate progress forward by one planning step (clamped to the path ends).
+        theta_next = jnp.clip(theta + v_theta * self.dt, 0.0, self._s_total)
+        # Step sim with the 4 real channels
         data = data.replace(
             controls=data.controls.replace(
-                attitude=data.controls.attitude.replace(staged_cmd=cmd[:, None, :])
+                attitude=data.controls.attitude.replace(staged_cmd=cmd4[:, None, :])
             )
         )
         next_data = self.step_fn(data, self.sim.freq // self.sim.control_freq)
-        cost = self.compute_cost(next_data, ref, obstacles, gate_frame_obstacles)
-        return next_data, (cost, next_data.states.pos)
+        cost = self.compute_cost(
+            next_data, theta_next, v_theta, ref, obstacles, gate_frame_obstacles
+        )
+        return (next_data, theta_next), (cost, next_data.states.pos)
 
     @partial(jax.jit, static_argnames=["self"])
     def rollout_sim(
-        self, obs: dict, infos: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]
+        self,
+        obs: dict,
+        theta0: jnp.ndarray,
+        infos: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray],
     ) -> jnp.ndarray:
-        """Rolls out the sim for scan."""
+        """Rolls out the sim for scan.
+
+        theta0: (n_rollouts,) starting progress (arc length) shared by all rollouts.
+        """
         data = self.sim.data
         pos = data.states.pos.at[...].set(obs["pos"])
         quat = data.states.quat.at[...].set(obs["quat"])
@@ -774,9 +902,10 @@ class AttitudeMPPIController(Controller):
             gate_frame_obstacles[None], (self.N,) + gate_frame_obstacles.shape
         )
 
+        # changedPractical: carry (sim data, theta) so each rollout integrates its own progress
         _, (costs, positions) = scan(
             self.apply_input,
-            data,
+            (data, theta0),
             (controls_flat, refs, obstacles_tiled, gate_frame_obstacles_tiled),
         )
         return jnp.sum(costs, axis=0), positions
@@ -785,7 +914,13 @@ class AttitudeMPPIController(Controller):
 
     def _draw_reference(self, sim: Sim):
         """Draw the reference spline, current setpoint, and waypoints."""
-        setpoint = self._planner.evaluate_pos(self._t).reshape(1, -1)
+        # changedPractical: setpoint is now the reference at the committed progress theta
+        # (arc length), not at wall-clock time.
+        idx = min(
+            int(np.searchsorted(self._theta_grid_np, self._theta)),
+            len(self._ref_pos_np) - 1,
+        )
+        setpoint = self._ref_pos_np[idx].reshape(1, -1)
         draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
         trajectory = self._planner.get_trajectory(100)
         draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))

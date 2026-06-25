@@ -27,6 +27,7 @@ action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
 t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
 curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
 clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
+lut_samples = 1500
 
 [controller.mppi.cost] # MPPI cost-function weights
 pos = 40.0 # position tracking
@@ -42,6 +43,19 @@ opp_drone = 10000.0 # per collision other drone penalty
 opp_drone_exp = 13 # weight of smoth collision cost using exponent
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
+
+# changedPractical: MPCC progress-variable (theta) reparameterization. The reference is keyed on
+# arc length; each rollout carries theta and advances it by a sampled v_theta (5th control channel).
+v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
+v_theta_max = 6.0    # cap on progress speed
+v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
+
+# contour = off-path (perpendicular) error; high to thread gate centres cleanly
+contour = 120.0
+# lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
+lag = 800.0
+# progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
+progress = 1.5
 
 [deploy]
 ### Settings only relevant for deployment

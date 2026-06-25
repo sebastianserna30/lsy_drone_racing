@@ -84,11 +84,17 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
     def compute_cost(
         self,
         data: SimData,
+        theta: jnp.ndarray,
+        v_theta: jnp.ndarray,
         reference: dict[str, jnp.ndarray],
         obstacles: jnp.ndarray,
         gate_frame_obstacles: jnp.ndarray,
     ) -> jnp.ndarray:
-        """Compute the cost for a given state."""
+        """Compute the cost for a given state.
+
+        changedPractical: signature follows the MPCC base controller (theta, v_theta added);
+        this override only adds the opponent-collision term and forwards the rest.
+        """
         ## 6. Collision Cost (Safety)
         safe_dist = (
             self.initial_info["experiment"]["env"]["drone_radius"] * 2.5
@@ -114,7 +120,7 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
             collosion_cost = 0
 
         return collosion_cost + super().compute_cost(
-            data, reference, obstacles, gate_frame_obstacles
+            data, theta, v_theta, reference, obstacles, gate_frame_obstacles
         )
 
     def step_callback(
