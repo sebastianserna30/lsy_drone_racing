@@ -140,6 +140,7 @@ class AttitudeMPPIController(Controller):
         )  # was 0.0; regularise toward hover thrust
         self.w_yaw = float(cost_cfg.get("yaw", 2.0))  # was 0.0; added to stabilise yaw oscillation
         self.w_obstacle = float(cost_cfg.get("obstacle", 1000.0))
+        self.w_obstacle_exp = float(cost_cfg.get("obstacle_exp", 20.0))
         self.w_opp_drone = float(cost_cfg.get("opp_drone", 2000.0))
         self.w_opp_drone_exp = float(cost_cfg.get("opp_drone_exp", 2000.0))
         self.w_floor = float(cost_cfg.get("floor", 500.0))
@@ -350,8 +351,6 @@ class AttitudeMPPIController(Controller):
         obs_device = {k: jax.device_put(v, self.sim.device) for k, v in obs.items()}
         # changedPractical
         t = self._t - self._t_start
-        if t >= self._t_end:
-            self._finished = True
 
         # changedPractical: clamp query times so rollout never extrapolates past spline end
         query_times = np.clip(t + self.dt_array, 0.0, self._planner.t_total)
@@ -768,7 +767,6 @@ class AttitudeMPPIController(Controller):
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
         ang_vel = data.states.ang_vel[:, 0, :]  # Shape: (n_rollouts, 3)
         ang_acc = data.states_deriv.ang_vel[:, 0, :]  # Shape: (n_rollouts, 3)
-        des_yaw = reference["yaw"][..., None]  # Shape: (1,) — nominally 0
         cmd = data.controls.attitude.staged_cmd[:, 0, :]  # Shape: (n_rollouts, 4)
 
         ## 1. MPCC tracking cost — contour + lag + progress (replaces pos/vel tracking)
@@ -804,34 +802,36 @@ class AttitudeMPPIController(Controller):
         ) ** 2 * self.w_thrust  # changedPractical: was 0.0; regularise toward hover thrust
         # Penalize yaw deviations
         yaw_cost = (
-            cmd[:, 2] - des_yaw
+            cmd[:, 2] - 0 #des_yaw should be 0
         ) ** 2 * self.w_yaw  # changedPractical: was 0.0; added to stabilise yaw oscillation
         input_cost = tilt_cost + thrust_cost + yaw_cost
 
+        binary_obstacle_cost = True
         ## 3. Obstacle Cost (Safety)
+        save_dist_obst = (self.initial_info["experiment"]["env"]["obstacle_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"])
         obs_diff = jnp.linalg.norm(pos[..., None, :2] - obstacles[None, :, :2], axis=-1)
-        obstacle_hits = jnp.where(
-            obs_diff
-            < self.initial_info["experiment"]["env"]["obstacle_radius"]
-            + self.initial_info["experiment"]["env"]["drone_radius"],
-            1,
-            0,
-        )
-        obstacle_cost = self.w_obstacle * jnp.sum(obstacle_hits, axis=-1)
+
+        if binary_obstacle_cost:
+            obstacle_hits = jnp.where(obs_diff < save_dist_obst,1,0,)
+            obstacle_cost = self.w_obstacle * jnp.sum(obstacle_hits, axis=-1)
+        else:
+            obstacle_cost = self.w_obstacle_exp * jnp.sum(
+                jnp.exp(-((obs_diff / save_dist_obst) ** 2)), axis=1) 
 
         ## 4. Gate Obstacle Cost (Safety)
+        save_dist_gate_obst = (self.initial_info["experiment"]["env"]["gate_frame_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"])
         gate_obs_diff = jnp.linalg.norm(
             pos[..., None, :2] - gate_frame_obstacles[None, :, :2], axis=-1
         )
-        gate_obstacle_hits = jnp.where(
-            gate_obs_diff
-            < self.initial_info["experiment"]["env"]["gate_frame_radius"]
-            + self.initial_info["experiment"]["env"]["drone_radius"],
-            1,
-            0,
-        )
-        gate_obstacle_cost = 1000.0 * jnp.sum(gate_obstacle_hits, axis=-1)
-        # gate_obstacle_cost = 0
+
+        if binary_obstacle_cost:
+            gate_obstacle_hits = jnp.where(gate_obs_diff< save_dist_gate_obst,1,0,)
+            gate_obstacle_cost = self.w_obstacle * jnp.sum(gate_obstacle_hits, axis=-1)
+        else:
+            gate_obstacle_cost = self.w_obstacle_exp * jnp.sum(
+                jnp.exp(-((gate_obs_diff / save_dist_gate_obst) ** 2)), axis=1) 
 
         ## 5. Floor penalty — prevents rollouts from sinking into the ground
         # changedPractical: penalise rollout states below z=0.1m, deters early liftoff instability

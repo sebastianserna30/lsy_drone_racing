@@ -13,7 +13,7 @@ ctrl_freq = 50 # Hz
 [controller.mppi] # MPPI parameters
 N = 25
 T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
-n_samples = 5000
+n_samples = 50000
 noise_sigma = 0.01 # Initial noise std
 temperature = 0.25
 elite_percentage = 0.01 # Top percent for averaging in [0,1]
@@ -24,9 +24,10 @@ K = 5 # means
 action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 3.8 # was 5.0; target matches PPO lap time (3.20s)
+t_total = 2.8 # was 5.0; target matches PPO lap time (3.20s)
 curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
 clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
+lut_samples = 1500
 
 [controller.mppi.cost] # MPPI cost-function weights
 pos = 40.0 # position tracking
@@ -37,10 +38,23 @@ ang_acc = 0.0 # angular-acceleration penalty (off)
 tilt = 1.0 # was 5.0; loosened to allow aggressive roll/pitch
 thrust = 1.0 # was 0.0; regularise toward hover thrust
 yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
-obstacle = 1000.0 # per-obstacle collision penalty
+obstacle = 10000.0 # per-obstacle collision penalty
+obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 
+# changedPractical: MPCC progress-variable (theta) reparameterization. The reference is keyed on
+# arc length; each rollout carries theta and advances it by a sampled v_theta (5th control channel).
+v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
+v_theta_max = 6.0    # cap on progress speed
+v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
+
+# contour = off-path (perpendicular) error; high to thread gate centres cleanly
+contour = 80.0
+# lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
+lag = 400.0
+# progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
+progress = 1.5
 
 [deploy]
 ### Settings only relevant for deployment
