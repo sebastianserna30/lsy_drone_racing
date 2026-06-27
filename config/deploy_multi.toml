@@ -3,6 +3,11 @@
 
 [[controller]]
 file = "attitude_controller_multi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+
+[controller.attitude] # AttitudeController parameters
+t_total = 7.8
+
+
 [[controller]]  # Add the controller files for each drone
 file = "trajectory_mppi_multi.py"
 type = "mppi" # mellinger, mppi

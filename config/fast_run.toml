@@ -9,6 +9,9 @@ file = "trajectory_mppi.py" # Put your controller file name here. Specifying a c
 type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
 
+[controller.attitude] # AttitudeController parameters
+t_total = 7.8
+
 
 [controller.mppi] # MPPI parameters
 N = 25

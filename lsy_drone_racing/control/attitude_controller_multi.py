@@ -9,6 +9,7 @@ from __future__ import annotations  # Python 3.10 type hints
 from typing import TYPE_CHECKING
 
 import numpy as np
+from ml_collections import ConfigDict
 from scipy.interpolate import CubicSpline
 
 from lsy_drone_racing.control.attitude_controller_v1 import (
@@ -33,6 +34,17 @@ class AttitudeController(SingleAttitudeController):
             config: The configuration of the environment.
         """
         self.rank = info["rank"]
+
+        controller_cfg = config["controller"][self.rank]
+        # Convert to a plain dict first
+        config_dict = config.to_dict()
+
+        # Replace controller
+        config_dict["controller"] = controller_cfg
+
+        # Create a new ConfigDict
+        config = ConfigDict(config_dict)
+
         super().__init__({k: v[self.rank] for k, v in obs.items()}, info, config)
 
     def compute_control(
@@ -50,3 +62,15 @@ class AttitudeController(SingleAttitudeController):
             [r_des, p_des, y_des, t_des] as a numpy array.
         """
         return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
+
+    def step_callback(
+        self,
+        action: NDArray[np.floating] | None = None,
+        obs: dict[str, NDArray[np.floating]] | None = None,
+        reward: float | None = None,
+        terminated: bool | None = None,
+        truncated: bool | None = None,
+        info: dict | None = None,
+    ) -> bool:
+        """Increment the tick counter."""
+        return super().step_callback(action, {k: v[self.rank] for k, v in obs.items()})
