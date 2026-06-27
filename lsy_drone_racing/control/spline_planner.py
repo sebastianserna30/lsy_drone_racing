@@ -305,9 +305,19 @@ class SplinePlanner:
         dip_degree = 120
         dip_centre_shift = 0.2
 
+        takeoff_vec_length = 0.4
+        takeoff_z_off = 0.25
+
         waypoints = [start_pos]
         gates_pos = obs["gates_pos"]
         gates_quat = obs["gates_quat"]
+
+        takeoff = start_pos.copy() 
+        vec_first_gate = gates_pos[0] - start_pos
+        vec_first_gate_norm = vec_first_gate/ np.linalg.norm(vec_first_gate)
+        takeoff += vec_first_gate_norm * takeoff_vec_length
+        takeoff += [0, 0, takeoff_z_off]  # lift to offset as fist waypoint
+        waypoints.append(takeoff)
 
         for i, (pos, quat) in enumerate(zip(gates_pos, gates_quat)):
             normal = R.from_quat(quat).apply([1.0, 0.0, 0.0])
