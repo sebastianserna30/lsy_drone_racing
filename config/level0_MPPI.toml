@@ -20,6 +20,41 @@ beta = 0.6 # Noise smoothing in [0,1] (no smoothing to max smoothing)
 alpha = 0.1 # weighted variance update weight
 min_variance = 0.02
 K = 5 # means
+action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
+# changedPractical: MPCC progress-variable (theta) params. NOTE these are read from
+# [controller.mppi] (mppi_cfg), NOT from [controller.mppi.cost] — keep them here.
+v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
+v_theta_max = 6.0    # cap on progress speed
+v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
+
+[controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
+t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
+curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
+clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
+lut_samples = 1500
+
+[controller.mppi.cost] # MPPI cost-function weights
+pos = 40.0 # position tracking
+z = 80.0 # extra penalty for altitude error
+vel = 1.0 # velocity tracking (original 1.0)
+ang_vel = 0.0 # angular-velocity penalty (off)
+ang_acc = 0.0 # angular-acceleration penalty (off)
+tilt = 1.0 # was 5.0; loosened to allow aggressive roll/pitch
+thrust = 1.0 # was 0.0; regularise toward hover thrust
+yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
+obstacle = 10000.0 # per-obstacle collision penalty
+obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
+opp_drone = 10000.0 # per collision other drone penalty (inert in single-agent)
+opp_drone_exp = 6 # weight of smoth collision cost using exponent was 13
+floor = 500.0 # penalty weight for states below floor_z
+floor_z = 0.1 # height (m) below which the floor penalty applies
+
+# contour = off-path (perpendicular) error; high to thread gate centres cleanly
+contour = 20.0
+# lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
+lag = 400.0
+# progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
+progress = 1.0
 
 
 [deploy]
