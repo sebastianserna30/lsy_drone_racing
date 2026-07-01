@@ -89,8 +89,8 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         reference: dict[str, jnp.ndarray],
         obstacles: jnp.ndarray,
         gate_frame_obstacles: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Compute the cost for a given state.
+    ) -> dict[str, jnp.ndarray]:
+        """Add the opponent-drone collision term to the base per-term cost dict.
 
         changedPractical: signature follows the MPCC base controller (theta, v_theta added);
         this override only adds the opponent-collision term and forwards the rest.
@@ -102,13 +102,16 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
 
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
         opp_pos = reference["opp_pos"][..., None, :]  # Shape: (1, 3)
-        dist_drones = jnp.linalg.norm(pos - opp_pos, axis=-1)
+        dist_drones = jnp.linalg.norm(pos - opp_pos, axis=-1)  # (n_rollouts,)
 
         binary_cost = False
 
         if binary_cost:
+            # per-rollout (n_rollouts,): single opponent, so no sum over an axis.
+            # (the old jnp.sum(..., axis=-1) collapsed this to a scalar that added the same
+            #  constant to every rollout — a no-op for elite/softmax selection)
             opponent_drone_hits = jnp.where(dist_drones < safe_dist, 1, 0)
-            coll_cost = self.w_opp_drone * jnp.sum(opponent_drone_hits, axis=-1)
+            coll_cost = self.w_opp_drone * opponent_drone_hits
         else:
             # smooth collsion cost using exponent
             coll_cost = self.w_opp_drone_exp * jnp.exp(-((dist_drones / safe_dist) ** 2))
@@ -117,11 +120,13 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         if use_collision_cost:
             collosion_cost = coll_cost
         else:
-            collosion_cost = 0
+            collosion_cost = jnp.zeros(pos.shape[0])
 
-        return collosion_cost + super().compute_cost(
+        terms = super().compute_cost(
             data, theta, v_theta, reference, obstacles, gate_frame_obstacles
         )
+        terms["opp_drone"] = collosion_cost
+        return terms
 
     def step_callback(
         self,
