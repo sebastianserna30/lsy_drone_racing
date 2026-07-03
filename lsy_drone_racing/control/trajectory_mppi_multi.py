@@ -59,8 +59,8 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         cost_cfg = config["controller"]["mppi"].get("cost", {})
         # Anisotropic (elliptical) opponent keep-out semi-axes (m): axial > lateral makes sitting
         # fore/aft of the opponent expensive and being beside it cheap -> pass instead of brake.
-        self.opp_axial = float(cost_cfg.get("opp_axial", 0.7))
-        self.opp_lateral = float(cost_cfg.get("opp_lateral", 0.25))
+        self.opp_axial = float(cost_cfg.get("opp_axial", 0.25))
+        self.opp_lateral = float(cost_cfg.get("opp_lateral", 0.10))
         self.use_anisotropic_opp = bool(cost_cfg.get("use_anisotropic_opp", True))
         # Behind-aware contour relaxation: when the opponent is ahead-on-our-line and within
         # behind_radius, scale the contour (off-path) cost down so the drone can swerve to pass.
@@ -220,7 +220,9 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
 
         phi = np.linspace(0.0, 2.0 * np.pi, n)
         if speed > 0.2 and self.use_anisotropic_opp:
-            h = np.array([u[0], u[1], 0.0]) / (speed + 1e-6)  # unit heading (horizontal)
+            h = np.array([u[0], u[1], 0.0]) / (
+                speed + 1e-6
+            )  # unit heading (horizontal)
             h_perp = np.array([-h[1], h[0], 0.0])  # left-perpendicular
             ring = (
                 o[None, :]
