@@ -358,6 +358,7 @@ class AttitudeMPPIController(Controller):
         self._t += self.ctrl_dt
 
         obs["rotor_vel"] = self.thrust
+        print(f"{obs=}")
         obs_device = {k: jax.device_put(v, self.sim.device) for k, v in obs.items()}
         # changedPractical
         t = self._t - self._t_start

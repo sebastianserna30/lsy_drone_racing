@@ -31,29 +31,47 @@ def main():
     ep_times = np.asarray(ep_times)  # shape (n_runs, n_drones)
     n_drones = ep_times.shape[1]
 
+    # By convention, the first controller in the config is the opponent, the second is the
+    # drone we are benchmarking. A run counts as successful only if our drone finishes the
+    # track completely AND finishes first (before the opponent).
+    OPPONENT = 0
+    OURS = 1
+
     for rank in range(n_drones):
         times = ep_times[:, rank]
         finished = ~np.isnan(times)
         n_failed = int((~finished).sum())
-        success_rate = finished.mean()
+        finish_rate = finished.mean()
         if n_failed:
             logger.warning(
-                f"Drone {rank}: {n_failed} run{'' if n_failed == 1 else 's'} failed out of {n_runs}!"
+                f"Drone {rank}: {n_failed} run{'' if n_failed == 1 else 's'} did not finish out of {n_runs}!"
             )
         else:
-            logger.info(f"Drone {rank}: all runs completed successfully!")
+            logger.info(f"Drone {rank}: all runs completed the track!")
 
         avg_time = np.mean(times[finished]) if finished.any() else float("nan")
         logger.info(f"Drone {rank}: Average Time (s): {avg_time}")
-        logger.info(f"Drone {rank}: Success Rate: {success_rate * 100}%")
+        logger.info(f"Drone {rank}: Finish Rate: {finish_rate * 100}%")
 
-    # Save aggregate stats (averaged over drones) for compatibility with evaluate.py.
-    finished_mask = ~np.isnan(ep_times)
-    overall_success = finished_mask.mean()
-    overall_avg = np.mean(ep_times[finished_mask]) if finished_mask.any() else float("nan")
+    our_times = ep_times[:, OURS]
+    opp_times = ep_times[:, OPPONENT]
+    our_finished = ~np.isnan(our_times)
+    # Won = we finished, and either the opponent did not finish or we finished strictly earlier.
+    won = our_finished & (np.isnan(opp_times) | (our_times < opp_times))
+    n_won = int(won.sum())
+    overall_success = won.mean()
+    overall_avg = np.mean(our_times[won]) if won.any() else float("nan")
+
+    logger.info(
+        f"Our drone (index {OURS}) won {n_won} of {n_runs} runs "
+        f"(finished the track first)."
+    )
+    logger.info(f"Success Rate (finished first): {overall_success * 100}%")
+    logger.info(f"Average Winning Time (s): {overall_avg}")
+
     if overall_success < 0.5:
-        logger.error("More than 50% of all runs failed! Aborting evaluation.")
-        raise RuntimeError("Too many runs failed!")
+        logger.error("Our drone won fewer than 50% of runs! Aborting evaluation.")
+        raise RuntimeError("Too many runs lost!")
 
     file = Path(__file__).parents[1] / "evaluation.csv"
     with open(file, "w") as f:

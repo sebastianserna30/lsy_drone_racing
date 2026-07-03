@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import mujoco
 import numpy as np
 from crazyflow.sim import Sim
 from crazyflow.sim.visualize import draw_line, draw_points
@@ -67,6 +68,12 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         self.contour_behind_scale = float(cost_cfg.get("contour_behind_scale", 0.15))
         self.behind_radius = float(cost_cfg.get("behind_radius", 0.6))
         self.use_behind_contour = bool(cost_cfg.get("use_behind_contour", True))
+        # changedPractical: opponent-bubble visualization style.
+        #   "gaussian" -> nested translucent ellipsoid shells (alpha ~ exp(-r^2) = the cost bump)
+        #   "solid"    -> one translucent ellipsoid at the d_aniso=1 level set
+        #   "line"     -> the old horizontal ellipse outline
+        self.bubble_style = str(cost_cfg.get("bubble_style", "gaussian"))
+        self.bubble_shells = int(cost_cfg.get("bubble_shells", 6))
 
         super().__init__({k: v[self.rank] for k, v in obs.items()}, info, config)
 
@@ -202,38 +209,76 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         draw_line(sim, self.opp_traj, rgba=(0.0, 0.0, 1.0, 1.0))
         self._draw_opp_bubble(sim)
 
-    def _draw_opp_bubble(self, sim: Sim, n: int = 48):
-        """Draw the anisotropic keep-out level set (d_aniso = 1) around the opponent.
+    def _opp_bubble_frame(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, bool]:
+        """Return (center, semi_axes, rot_mat_flat, anisotropic?) for the opponent bubble.
 
-        changedPractical: the cost's low-cost region is the ellipse with semi-axis
-        opp_axial ALONG the opponent heading and opp_lateral ACROSS it (see #2 in
-        compute_cost). We draw that ellipse in the horizontal plane at the opponent's
-        height so the "sit-beside-not-behind" shape is visible in the sim. When the
-        opponent is ~stationary the cost falls back to an isotropic circle of radius
-        safe_dist, so we draw that instead.
+        The anisotropic keep-out is a prolate spheroid: semi-axis opp_axial ALONG the
+        opponent heading and opp_lateral in BOTH perpendicular directions (the cost's
+        d_perp is the full 3D off-heading distance). We build an orthonormal frame whose
+        local x-axis is the heading. When the opponent is ~stationary the cost falls back
+        to an isotropic sphere of radius safe_dist, so we return that instead.
         """
-        if getattr(self, "_opp_pos_host", None) is None:
-            return
         o = self._opp_pos_host
         u = self._opp_vel_host
-        speed = float(np.linalg.norm(u[:2]))  # horizontal speed for heading
-
-        phi = np.linspace(0.0, 2.0 * np.pi, n)
+        speed = float(np.linalg.norm(u))
         if speed > 0.2 and self.use_anisotropic_opp:
-            h = np.array([u[0], u[1], 0.0]) / (
-                speed + 1e-6
-            )  # unit heading (horizontal)
-            h_perp = np.array([-h[1], h[0], 0.0])  # left-perpendicular
+            h = u / (speed + 1e-6)  # unit heading (full 3D)
+            ref = np.array([0.0, 0.0, 1.0]) if abs(h[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+            e2 = np.cross(ref, h)
+            e2 /= np.linalg.norm(e2) + 1e-9
+            e3 = np.cross(h, e2)
+            mat = np.stack([h, e2, e3], axis=-1)  # columns = local x/y/z axes
+            semi = np.array([self.opp_axial, self.opp_lateral, self.opp_lateral])
+            return o, semi, mat.flatten(), True
+        safe_dist = self.initial_info["experiment"]["env"]["drone_radius"] * 2.5
+        return o, np.array([safe_dist] * 3), np.eye(3).flatten(), False
+
+    def _draw_opp_bubble(self, sim: Sim):
+        """Draw the anisotropic keep-out zone around the opponent as a 3D ellipsoid.
+
+        changedPractical: replaces the flat line outline. Three styles via `bubble_style`:
+          - "gaussian": nested translucent ellipsoid shells whose alpha follows the actual
+            cost bump exp(-r^2) at each shell's normalized radius r -> a soft glow that IS
+            the Gaussian penalty field (brightest core, fading rim).
+          - "solid": a single translucent ellipsoid at the d_aniso=1 level set.
+          - "line": the old horizontal ellipse outline (cheap fallback).
+        """
+        if sim.viewer is None or getattr(self, "_opp_pos_host", None) is None:
+            return
+        o, semi, mat, aniso = self._opp_bubble_frame()
+        rgb = (1.0, 0.5, 0.0) if aniso else (1.0, 0.0, 0.0)  # orange aniso / red isotropic
+
+        if self.bubble_style == "line":
+            n = 48
+            phi = np.linspace(0.0, 2.0 * np.pi, n)
+            axes = mat.reshape(3, 3)
             ring = (
                 o[None, :]
-                + self.opp_axial * np.cos(phi)[:, None] * h[None, :]
-                + self.opp_lateral * np.sin(phi)[:, None] * h_perp[None, :]
+                + semi[0] * np.cos(phi)[:, None] * axes[:, 0][None, :]
+                + semi[1] * np.sin(phi)[:, None] * axes[:, 1][None, :]
             )
-            rgba = (1.0, 0.5, 0.0, 1.0)  # orange = anisotropic
-        else:
-            safe_dist = self.initial_info["experiment"]["env"]["drone_radius"] * 2.5
-            ring = o[None, :] + safe_dist * np.stack(
-                [np.cos(phi), np.sin(phi), np.zeros_like(phi)], axis=-1
+            draw_line(sim, ring, rgba=(*rgb, 1.0))
+            return
+
+        viewer = sim.viewer.viewer
+        if self.bubble_style == "gaussian":
+            # Outer shells first (painter's order) so the bright core reads on top.
+            # r = normalized radius; alpha = exp(-r^2) is exactly the cost value there.
+            radii = np.linspace(1.6, 0.35, self.bubble_shells)
+            for r in radii:
+                alpha = 0.35 * float(np.exp(-(r**2)))
+                viewer.add_marker(
+                    type=mujoco.mjtGeom.mjGEOM_ELLIPSOID,
+                    pos=o,
+                    size=semi * r,
+                    mat=mat,
+                    rgba=np.array([*rgb, alpha]),
+                )
+        else:  # "solid"
+            viewer.add_marker(
+                type=mujoco.mjtGeom.mjGEOM_ELLIPSOID,
+                pos=o,
+                size=semi,
+                mat=mat,
+                rgba=np.array([*rgb, 0.3]),
             )
-            rgba = (1.0, 0.0, 0.0, 1.0)  # red = isotropic fallback
-        draw_line(sim, ring, rgba=rgba)

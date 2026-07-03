@@ -14,8 +14,8 @@ type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
 
 [controller.mppi] # MPPI parameters
-N = 25
-T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
+N = 30
+T = 0.6 # seconds, control horizon duration. Note that dt = T / horizon
 n_samples = 50000
 noise_sigma = 0.01 # Initial noise std
 temperature = 0.25
@@ -59,7 +59,7 @@ contour = 20.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
 lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 1.0
+progress = 0.1
 
 [deploy]
 ### Settings only relevant for deployment
