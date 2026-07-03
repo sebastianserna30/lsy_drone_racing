@@ -25,7 +25,9 @@ from scipy.spatial.transform import Rotation as R
 from lsy_drone_racing.control import Controller
 from lsy_drone_racing.control.spline_planner import SplinePlanner
 
-HOVER_THRUST = 0.43  # collective thrust (N) that approximately balances gravity for cf21B_500
+HOVER_THRUST = (
+    0.43  # collective thrust (N) that approximately balances gravity for cf21B_500
+)
 
 if TYPE_CHECKING:
     from crazyflow.sim.data import SimData
@@ -56,7 +58,10 @@ class AttitudeMPPIController(Controller):
         return gate_frame_pos
 
     def __init__(
-        self, initial_obs: dict[str, NDArray[np.floating]], info: dict, initial_info: dict
+        self,
+        initial_obs: dict[str, NDArray[np.floating]],
+        info: dict,
+        initial_info: dict,
     ):
         """Initialize the MPPI controller.
 
@@ -114,7 +119,9 @@ class AttitudeMPPIController(Controller):
         self.step_fn = self.sim.build_step_fn()
 
         self.noise_sigmas = jnp.full(
-            (self.K, self.N, self.num_inputs), fill_value=mppi_cfg["noise_sigma"], device=self.sim.device
+            (self.K, self.N, self.num_inputs),
+            fill_value=mppi_cfg["noise_sigma"],
+            device=self.sim.device,
         )
         self.temperature = mppi_cfg["temperature"]
         self.elite_percentage = mppi_cfg["elite_percentage"]
@@ -138,7 +145,9 @@ class AttitudeMPPIController(Controller):
         self.w_thrust = float(
             cost_cfg.get("thrust", 1.0)
         )  # was 0.0; regularise toward hover thrust
-        self.w_yaw = float(cost_cfg.get("yaw", 2.0))  # was 0.0; added to stabilise yaw oscillation
+        self.w_yaw = float(
+            cost_cfg.get("yaw", 2.0)
+        )  # was 0.0; added to stabilise yaw oscillation
         self.w_obstacle = float(cost_cfg.get("obstacle", 1000.0))
         self.w_obstacle_exp = float(cost_cfg.get("obstacle_exp", 20.0))
         self.w_opp_drone = float(cost_cfg.get("opp_drone", 2000.0))
@@ -151,8 +160,12 @@ class AttitudeMPPIController(Controller):
         # channel). pos error is split into lag (along path tangent) and contour
         # (perpendicular); progress reward (-w_progress * v_theta) pushes the drone forward.
         self.w_contour = float(cost_cfg.get("contour", 40.0))  # off-path penalty
-        self.w_lag = float(cost_cfg.get("lag", 800.0))  # ahead/behind-of-theta penalty (heavy)
-        self.w_progress = float(cost_cfg.get("progress", 2.0))  # mu: reward for advancing theta
+        self.w_lag = float(
+            cost_cfg.get("lag", 800.0)
+        )  # ahead/behind-of-theta penalty (heavy)
+        self.w_progress = float(
+            cost_cfg.get("progress", 2.0)
+        )  # mu: reward for advancing theta
         spline_cfg = mppi_cfg.get("spline", {})
         self._spline_t_total = float(spline_cfg.get("t_total", 4.1))
         self._spline_curvature_weight = float(spline_cfg.get("curvature_weight", 2.0))
@@ -184,7 +197,9 @@ class AttitudeMPPIController(Controller):
         # changedPractical
         # self.low_level_ctrl_freq = initial_info["low_level_ctrl_freq"]
         # self.drone_params = load_params("first_principles", initial_info["drone_model"])
-        self.drone_params = load_params("first_principles", initial_info["drone"]["model"])
+        self.drone_params = load_params(
+            "first_principles", initial_info["drone"]["model"]
+        )
         self.drone_mass = self.drone_params["mass"]
         # changedPractical: 5-dim bounds — channel 4 is v_theta (progress speed, m/s),
         # bounded [0, v_theta_max] so the drone never runs the reference backward
@@ -196,7 +211,9 @@ class AttitudeMPPIController(Controller):
         self.act_high = self.act_high.at[4].set(self.v_theta_max)
         self.thrust = np.zeros(4)
         # changedPractical: EMA filter on executed action to damp mode-switching oscillations
-        self._prev_action = np.array([0.0, 0.0, 0.0, HOVER_THRUST])  # [roll, pitch, yaw, thrust]
+        self._prev_action = np.array(
+            [0.0, 0.0, 0.0, HOVER_THRUST]
+        )  # [roll, pitch, yaw, thrust]
         self._action_ema = float(
             mppi_cfg.get("action_ema", 0.4)
         )  # blend: ema * new + (1-ema) * prev
@@ -251,9 +268,14 @@ class AttitudeMPPIController(Controller):
         # key = jax.random.PRNGKey(0)
         self._rng_key = jax.random.PRNGKey(0)
         self._rng_key, subkey = random.split(self._rng_key)
-        info_short = {"rng_key": subkey, "obstacles": jnp.array(initial_obs["obstacles_pos"])}
+        info_short = {
+            "rng_key": subkey,
+            "obstacles": jnp.array(initial_obs["obstacles_pos"]),
+        }
 
-        self._log_buf: dict | None = None  # must be set before warmup calls compute_control
+        self._log_buf: dict | None = (
+            None  # must be set before warmup calls compute_control
+        )
         for i in range(10):
             a = self.compute_control(initial_obs, info_short)  # Warm up the controller
             jax.block_until_ready(a)
@@ -383,20 +405,20 @@ class AttitudeMPPIController(Controller):
             costs_grouped,
             positions_grouped,
             mode_term_costs,
-        ) = (
-            self._mppi_core_update(
-                subkey,
-                obs_device,
-                refs,
-                theta0,
-                self.mean_controls,  # Shape: (K, Horizon, U)
-                self.noise_sigmas,  # Shape: (K, Horizon, U)
-            )
+        ) = self._mppi_core_update(
+            subkey,
+            obs_device,
+            refs,
+            theta0,
+            self.mean_controls,  # Shape: (K, Horizon, U)
+            self.noise_sigmas,  # Shape: (K, Horizon, U)
         )
 
         # 2. Extract Action from the "Winner" Mode
         # We only execute the action from the best cluster
-        best_action = new_means[best_mode_idx, 0]  # 5-dim: [roll, pitch, yaw, thrust, v_theta]
+        best_action = new_means[
+            best_mode_idx, 0
+        ]  # 5-dim: [roll, pitch, yaw, thrust, v_theta]
 
         # 3. Receding Horizon Update (Shift & Interpolate)
         # We need to shift ALL K means, not just the active one.
@@ -430,15 +452,21 @@ class AttitudeMPPIController(Controller):
         v_theta_cmd = float(full_action[4])
         action = full_action[:4]
         # changedPractical: EMA smoothing to damp inter-step oscillations from mode switching
-        action = self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
+        action = (
+            self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
+        )
         self._prev_action = action
         # commit progress: advance theta by the executed v_theta over one control cycle
-        self._theta = float(min(self._theta + v_theta_cmd * self.ctrl_dt, self._s_total))
+        self._theta = float(
+            min(self._theta + v_theta_cmd * self.ctrl_dt, self._s_total)
+        )
         self.v_theta_cmd = v_theta_cmd  # store for logging / debugging
         if self._theta >= self._s_total - 1e-3:
             self._finished = True
         self.thrust += (
-            self.drone_params["thrust_dyn_coef"] * (action[3] - self.thrust) * self.ctrl_dt
+            self.drone_params["thrust_dyn_coef"]
+            * (action[3] - self.thrust)
+            * self.ctrl_dt
         )
 
         if self._log_buf is not None:
@@ -501,8 +529,12 @@ class AttitudeMPPIController(Controller):
         )
 
         if gates_changed:
-            gate_frame_pos = self.get_gate_frame_pos(obs["gates_pos"], obs["gates_quat"])
-            self.gate_frame_obstacles = jnp.array(gate_frame_pos, device=self.sim.device)
+            gate_frame_pos = self.get_gate_frame_pos(
+                obs["gates_pos"], obs["gates_quat"]
+            )
+            self.gate_frame_obstacles = jnp.array(
+                gate_frame_pos, device=self.sim.device
+            )
 
             update_planner = False
 
@@ -531,7 +563,9 @@ class AttitudeMPPIController(Controller):
             return
         log_dir = os.getenv("LOG_DRONE_DATA", ".")
         out_path = (
-            Path(log_dir) / "mppi_data.npz" if not log_dir.endswith(".npz") else Path(log_dir)
+            Path(log_dir) / "mppi_data.npz"
+            if not log_dir.endswith(".npz")
+            else Path(log_dir)
         )
         out_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
@@ -595,14 +629,18 @@ class AttitudeMPPIController(Controller):
 
         # Vectorize sampling over K means
         # noise shape: (K, M, Horizon, 4)
-        noise = vmap(sample_per_mean)(keys, current_means, noise_sigmas, lower_bound, upper_bound)
+        noise = vmap(sample_per_mean)(
+            keys, current_means, noise_sigmas, lower_bound, upper_bound
+        )
 
         # --- 3. NOISE SMOOTHING ---
         # Apply beta smoothing. We can flatten K and M dimensions for this operation
         # or vmap twice. Flattening is easier.
         noise_flat = noise.reshape(-1, self.N, self.num_inputs)  # (N, H, num_inputs)
 
-        def smooth_scan(carry: jnp.ndarray, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        def smooth_scan(
+            carry: jnp.ndarray, x: jnp.ndarray
+        ) -> tuple[jnp.ndarray, jnp.ndarray]:
             new_val = self.beta * carry + (1 - self.beta) * x
             return new_val, new_val
 
@@ -626,28 +664,38 @@ class AttitudeMPPIController(Controller):
         # Flatten for the physics engine (Physics doesn't care about K clusters)
         # 1. Transpose from (K, M, N, nu) -> (N, K, M, nu)
         # 2. Reshape to (N, K*M, nu)
-        controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, self.num_inputs)
+        controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(
+            self.N, -1, self.num_inputs
+        )
 
         costs_flat, positions_flat, terms_flat = self.rollout_sim(
-            obs, theta0, (controls_flat, refs, self.obstacles, self.gate_frame_obstacles)
+            obs,
+            theta0,
+            (controls_flat, refs, self.obstacles, self.gate_frame_obstacles),
         )
 
         # Reshape costs back to groups: (K, M)
         costs_grouped = costs_flat.reshape(self.K, self.M)
-        positions_grouped = positions_flat.transpose(1, 0, 2, 3).reshape(self.K, self.M, self.N, 3)
+        positions_grouped = positions_flat.transpose(1, 0, 2, 3).reshape(
+            self.K, self.M, self.N, 3
+        )
         # Per-mode cost breakdown: take each mode's best (lowest-total) sample, the
         # trajectory that mode "proposes". mode_term_costs[name] has shape (K,).
         best_sample = jnp.argmin(costs_grouped, axis=1)  # (K,)
         k_idx = jnp.arange(self.K)
         mode_term_costs = {
-            name: v.reshape(self.K, self.M)[k_idx, best_sample] for name, v in terms_flat.items()
+            name: v.reshape(self.K, self.M)[k_idx, best_sample]
+            for name, v in terms_flat.items()
         }
 
         # --- 5. PER-MODE UPDATE (The Core Logic) ---
         # We define a function that updates ONE mean, then vmap it over K
 
         def update_single_mode(
-            k_mean: jnp.ndarray, k_noise: jnp.ndarray, k_costs: jnp.ndarray, k_sigma: jnp.ndarray
+            k_mean: jnp.ndarray,
+            k_noise: jnp.ndarray,
+            k_costs: jnp.ndarray,
+            k_sigma: jnp.ndarray,
         ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             # k_mean: (H, 4)
             # k_noise: (M, H, 4)
@@ -739,7 +787,9 @@ class AttitudeMPPIController(Controller):
 
         # 2. Sample from standard truncated normal (mean=0, std=1)
         # jax.random.truncated_normal expects bounds for the standard normal
-        standard_samples = random.truncated_normal(key, lower=alpha, upper=beta, shape=shape)
+        standard_samples = random.truncated_normal(
+            key, lower=alpha, upper=beta, shape=shape
+        )
 
         # 3. Scale and shift back to original distribution
         return (standard_samples * sd) + mean
@@ -826,44 +876,64 @@ class AttitudeMPPIController(Controller):
         )  # changedPractical: was 5.0; loosened to allow aggressive roll/pitch
         # Penalize thrust deviations from gravity
         thrust_cost = (
-            cmd[:, 3] - HOVER_THRUST
-        ) ** 2 * self.w_thrust  # changedPractical: was 0.0; regularise toward hover thrust
+            (cmd[:, 3] - HOVER_THRUST) ** 2 * self.w_thrust
+        )  # changedPractical: was 0.0; regularise toward hover thrust
         # Penalize yaw deviations
         yaw_cost = (
-            cmd[:, 2] - 0 #des_yaw should be 0
-        ) ** 2 * self.w_yaw  # changedPractical: was 0.0; added to stabilise yaw oscillation
+            (
+                cmd[:, 2] - 0  # des_yaw should be 0
+            )
+            ** 2
+            * self.w_yaw
+        )  # changedPractical: was 0.0; added to stabilise yaw oscillation
 
         binary_obstacle_cost = True
         ## 3. Obstacle Cost (Safety)
-        save_dist_obst = (self.initial_info["experiment"]["env"]["obstacle_radius"]
-            + self.initial_info["experiment"]["env"]["drone_radius"])
+        save_dist_obst = (
+            self.initial_info["experiment"]["env"]["obstacle_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"]
+        )
         obs_diff = jnp.linalg.norm(pos[..., None, :2] - obstacles[None, :, :2], axis=-1)
 
         if binary_obstacle_cost:
-            obstacle_hits = jnp.where(obs_diff < save_dist_obst,1,0,)
+            obstacle_hits = jnp.where(
+                obs_diff < save_dist_obst,
+                1,
+                0,
+            )
             obstacle_cost = self.w_obstacle * jnp.sum(obstacle_hits, axis=-1)
         else:
             obstacle_cost = self.w_obstacle_exp * jnp.sum(
-                jnp.exp(-((obs_diff / save_dist_obst) ** 2)), axis=1) 
+                jnp.exp(-((obs_diff / save_dist_obst) ** 2)), axis=1
+            )
 
         ## 4. Gate Obstacle Cost (Safety)
-        save_dist_gate_obst = (self.initial_info["experiment"]["env"]["gate_frame_radius"]
-            + self.initial_info["experiment"]["env"]["drone_radius"])
+        save_dist_gate_obst = (
+            self.initial_info["experiment"]["env"]["gate_frame_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"]
+        )
         gate_obs_diff = jnp.linalg.norm(
             pos[..., None, :2] - gate_frame_obstacles[None, :, :2], axis=-1
         )
 
         if binary_obstacle_cost:
-            gate_obstacle_hits = jnp.where(gate_obs_diff< save_dist_gate_obst,1,0,)
+            gate_obstacle_hits = jnp.where(
+                gate_obs_diff < save_dist_gate_obst,
+                1,
+                0,
+            )
             gate_obstacle_cost = self.w_obstacle * jnp.sum(gate_obstacle_hits, axis=-1)
         else:
             gate_obstacle_cost = self.w_obstacle_exp * jnp.sum(
-                jnp.exp(-((gate_obs_diff / save_dist_gate_obst) ** 2)), axis=1) 
+                jnp.exp(-((gate_obs_diff / save_dist_gate_obst) ** 2)), axis=1
+            )
 
         ## 5. Floor penalty — prevents rollouts from sinking into the ground
         # changedPractical: penalise rollout states below z=0.1m, deters early liftoff instability
         floor_cost = jnp.where(
-            pos[..., 2] < self.floor_z, (self.floor_z - pos[..., 2]) ** 2 * self.w_floor, 0.0
+            pos[..., 2] < self.floor_z,
+            (self.floor_z - pos[..., 2]) ** 2 * self.w_floor,
+            0.0,
         )
 
         # Per-term costs, each shape (n_rollouts,). The optimizer/logger sum these.
@@ -993,16 +1063,21 @@ class AttitudeMPPIController(Controller):
         for k in range(self.K):
             rgb = _cluster_colors[k % len(_cluster_colors)]
             sorted_idx = np.argsort(costs[k])[:n_viz]
+            draw_line(sim, positions[k, sorted_idx[0]], rgba=(*rgb, 1.0))
+            """
             for rank, m in enumerate(sorted_idx):
                 alpha = 1.0 - (rank / n_viz) * 0.75
                 draw_line(sim, positions[k, m], rgba=(*rgb, alpha))
+            """
 
         best_m = int(np.argmin(costs[best_k]))
         draw_line(sim, positions[best_k, best_m], rgba=(1.0, 1.0, 1.0, 1.0))
 
     def _draw_obstacles(self, sim: Sim):
         draw_points(sim, self.obstacles, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
-        draw_points(sim, self.gate_frame_obstacles, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
+        draw_points(
+            sim, self.gate_frame_obstacles, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02
+        )
 
     # own renderings
     def render_callback(self, sim: Sim):
