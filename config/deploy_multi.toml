@@ -25,6 +25,11 @@ alpha = 0.1 # weighted variance update weight
 min_variance = 0.02
 K = 5 # means
 action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
+# changedPractical: MPCC progress-variable (theta) reparameterization. The reference is keyed on
+# arc length; each rollout carries theta and advances it by a sampled v_theta (5th control channel).
+v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
+v_theta_max = 6.0    # cap on progress speed
+v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
 t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
@@ -48,11 +53,6 @@ opp_drone_exp = 6 # weight of smoth collision cost using exponent was 13
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 
-# changedPractical: MPCC progress-variable (theta) reparameterization. The reference is keyed on
-# arc length; each rollout carries theta and advances it by a sampled v_theta (5th control channel).
-v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
-v_theta_max = 6.0    # cap on progress speed
-v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
 
 # contour = off-path (perpendicular) error; high to thread gate centres cleanly
 contour = 20.0
