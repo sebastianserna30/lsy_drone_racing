@@ -52,8 +52,8 @@ opp_drone_exp = 50 # smooth opponent-collision weight. Sweep (seed 3756812149): 
 # changedPractical (#2): anisotropic opponent keep-out. Ellipse elongated along opponent heading:
 # axial (fore/aft) semi-axis > lateral so sitting behind is costly, being beside is cheap -> overtake.
 use_anisotropic_opp = true
-opp_axial = 0.7    # fore/aft keep-out half-length (m)
-opp_lateral = 0.25 # sideways keep-out half-width (m); ~2x drone_radius (actual collision dist)
+opp_axial = 0.25    # fore/aft keep-out half-length (m)
+opp_lateral = 0.10 # sideways keep-out half-width (m); ~2x drone_radius (actual collision dist)
 # changedPractical (#3): behind-aware contour relaxation. When opponent is ahead-on-line & within
 # behind_radius, scale the off-path (contour) cost so the drone can leave the line to pass.
 use_behind_contour = true
