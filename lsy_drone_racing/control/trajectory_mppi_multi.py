@@ -90,6 +90,9 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
             # This is the normal mode for multilevel where other drone is pressent in observations
             info["opponent_pos"] = obs["pos"][self.opponent]
             info["opponent_vel"] = obs["vel"][self.opponent]
+            # changedPractical: host copies for render_callback (anisotropic bubble viz).
+            self._opp_pos_host = np.asarray(info["opponent_pos"], dtype=float)
+            self._opp_vel_host = np.asarray(info["opponent_vel"], dtype=float)
             return super().compute_control(
                 {k: v[self.rank] for k, v in obs.items()}, info
             )
@@ -197,3 +200,38 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         """Visualize the desired trajectory and the current setpoint."""
         super().render_callback(sim)
         draw_line(sim, self.opp_traj, rgba=(0.0, 0.0, 1.0, 1.0))
+        self._draw_opp_bubble(sim)
+
+    def _draw_opp_bubble(self, sim: Sim, n: int = 48):
+        """Draw the anisotropic keep-out level set (d_aniso = 1) around the opponent.
+
+        changedPractical: the cost's low-cost region is the ellipse with semi-axis
+        opp_axial ALONG the opponent heading and opp_lateral ACROSS it (see #2 in
+        compute_cost). We draw that ellipse in the horizontal plane at the opponent's
+        height so the "sit-beside-not-behind" shape is visible in the sim. When the
+        opponent is ~stationary the cost falls back to an isotropic circle of radius
+        safe_dist, so we draw that instead.
+        """
+        if getattr(self, "_opp_pos_host", None) is None:
+            return
+        o = self._opp_pos_host
+        u = self._opp_vel_host
+        speed = float(np.linalg.norm(u[:2]))  # horizontal speed for heading
+
+        phi = np.linspace(0.0, 2.0 * np.pi, n)
+        if speed > 0.2 and self.use_anisotropic_opp:
+            h = np.array([u[0], u[1], 0.0]) / (speed + 1e-6)  # unit heading (horizontal)
+            h_perp = np.array([-h[1], h[0], 0.0])  # left-perpendicular
+            ring = (
+                o[None, :]
+                + self.opp_axial * np.cos(phi)[:, None] * h[None, :]
+                + self.opp_lateral * np.sin(phi)[:, None] * h_perp[None, :]
+            )
+            rgba = (1.0, 0.5, 0.0, 1.0)  # orange = anisotropic
+        else:
+            safe_dist = self.initial_info["experiment"]["env"]["drone_radius"] * 2.5
+            ring = o[None, :] + safe_dist * np.stack(
+                [np.cos(phi), np.sin(phi), np.zeros_like(phi)], axis=-1
+            )
+            rgba = (1.0, 0.0, 0.0, 1.0)  # red = isotropic fallback
+        draw_line(sim, ring, rgba=rgba)
