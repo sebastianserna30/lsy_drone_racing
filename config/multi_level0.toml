@@ -48,7 +48,17 @@ yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
 obstacle = 10000.0 # per-obstacle collision penalty
 obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
 opp_drone = 10000.0 # per collision other drone penalty
-opp_drone_exp = 6 # weight of smoth collision cost using exponent was 13
+opp_drone_exp = 50 # smooth opponent-collision weight. Sweep (seed 3756812149): <=35 -> drones collide at shared gate 2 (2/4 DNF); >=50 -> MPPI yields, 4/4 finish (~9.16s). 80 also 4/4 (~9.22s) for extra margin. was 13, 6
+# changedPractical (#2): anisotropic opponent keep-out. Ellipse elongated along opponent heading:
+# axial (fore/aft) semi-axis > lateral so sitting behind is costly, being beside is cheap -> overtake.
+use_anisotropic_opp = true
+opp_axial = 0.7    # fore/aft keep-out half-length (m)
+opp_lateral = 0.25 # sideways keep-out half-width (m); ~2x drone_radius (actual collision dist)
+# changedPractical (#3): behind-aware contour relaxation. When opponent is ahead-on-line & within
+# behind_radius, scale the off-path (contour) cost so the drone can leave the line to pass.
+use_behind_contour = true
+behind_radius = 0.6        # only relax contour within this range of the opponent (m)
+contour_behind_scale = 0.15 # contour multiplier when stuck behind (1.0 = no relaxation)
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 

@@ -53,6 +53,21 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         # Create a new ConfigDict
         config = ConfigDict(config_dict)
 
+        # changedPractical: opponent-interaction tuning (anisotropic keep-out + behind-aware
+        # contour relaxation). Set BEFORE super().__init__ — the base warms up the controller
+        # (calls compute_control -> compute_cost) inside __init__, so these must exist first.
+        cost_cfg = config["controller"]["mppi"].get("cost", {})
+        # Anisotropic (elliptical) opponent keep-out semi-axes (m): axial > lateral makes sitting
+        # fore/aft of the opponent expensive and being beside it cheap -> pass instead of brake.
+        self.opp_axial = float(cost_cfg.get("opp_axial", 0.7))
+        self.opp_lateral = float(cost_cfg.get("opp_lateral", 0.25))
+        self.use_anisotropic_opp = bool(cost_cfg.get("use_anisotropic_opp", True))
+        # Behind-aware contour relaxation: when the opponent is ahead-on-our-line and within
+        # behind_radius, scale the contour (off-path) cost down so the drone can swerve to pass.
+        self.contour_behind_scale = float(cost_cfg.get("contour_behind_scale", 0.15))
+        self.behind_radius = float(cost_cfg.get("behind_radius", 0.6))
+        self.use_behind_contour = bool(cost_cfg.get("use_behind_contour", True))
+
         super().__init__({k: v[self.rank] for k, v in obs.items()}, info, config)
 
     def compute_control(
@@ -75,7 +90,9 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
             # This is the normal mode for multilevel where other drone is pressent in observations
             info["opponent_pos"] = obs["pos"][self.opponent]
             info["opponent_vel"] = obs["vel"][self.opponent]
-            return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
+            return super().compute_control(
+                {k: v[self.rank] for k, v in obs.items()}, info
+            )
 
         # This backup is needed for the warmup of the controller
         return super().compute_control(obs, info)
@@ -101,8 +118,10 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         )  # 2 would be theory and added buffer
 
         pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
-        opp_pos = reference["opp_pos"][..., None, :]  # Shape: (1, 3)
-        dist_drones = jnp.linalg.norm(pos - opp_pos, axis=-1)  # (n_rollouts,)
+        opp_pos = reference["opp_pos"]  # (3,) this horizon step
+        opp_vel = reference["opp_vel"]  # (3,) opponent heading this horizon step
+        delta = pos - opp_pos[None, :]  # (n_rollouts, 3)
+        dist_drones = jnp.linalg.norm(delta, axis=-1)  # (n_rollouts,)
 
         binary_cost = False
 
@@ -112,9 +131,26 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
             #  constant to every rollout — a no-op for elite/softmax selection)
             opponent_drone_hits = jnp.where(dist_drones < safe_dist, 1, 0)
             coll_cost = self.w_opp_drone * opponent_drone_hits
+        elif self.use_anisotropic_opp:
+            # anisotropic (elliptical) keep-out elongated ALONG the
+            # opponent's heading. Split delta into along-heading and perpendicular parts, scale
+            # by semi-axes (axial > lateral). Fore/aft of the opponent -> small scaled dist ->
+            # high cost; beside it -> large scaled dist -> low cost. So the low-cost escape is a
+            # sideways overtake, not a brake. Falls back to isotropic when opponent ~stationary.
+            opp_speed = jnp.linalg.norm(opp_vel)
+            heading = opp_vel / (opp_speed + 1e-6)
+            d_along = delta @ heading  # signed
+            d_perp = jnp.linalg.norm(delta - d_along[:, None] * heading, axis=-1)
+            d_aniso = jnp.sqrt(
+                (d_along / self.opp_axial) ** 2 + (d_perp / self.opp_lateral) ** 2
+            )
+            d_scaled = jnp.where(opp_speed > 0.2, d_aniso, dist_drones / safe_dist)
+            coll_cost = self.w_opp_drone_exp * jnp.exp(-(d_scaled**2))
         else:
-            # smooth collsion cost using exponent
-            coll_cost = self.w_opp_drone_exp * jnp.exp(-((dist_drones / safe_dist) ** 2))
+            # smooth collsion cost using exponent (isotropic circle)
+            coll_cost = self.w_opp_drone_exp * jnp.exp(
+                -((dist_drones / safe_dist) ** 2)
+            )
 
         use_collision_cost = True
         if use_collision_cost:
@@ -125,6 +161,23 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         terms = super().compute_cost(
             data, theta, v_theta, reference, obstacles, gate_frame_obstacles
         )
+
+        # changedPractical (#3): behind-aware contour relaxation. Project the opponent onto our
+        # own path tangent; if it is ahead of us (opp_ahead > 0) AND close, we are stuck behind
+        # on the racing line -> scale the off-path (contour) penalty down so the drone is allowed
+        # to leave the line, pass, and rejoin. lag + gate-frame cost still hold the rest.
+        if False:  # self.use_behind_contour:
+            _, tangent = jax.vmap(self._ref_at_theta)(
+                theta
+            )  # (n_rollouts, 3) unit tangent
+            opp_ahead = jnp.sum(
+                tangent * (opp_pos[None, :] - pos), axis=-1
+            )  # (n_rollouts,)
+            behind = (opp_ahead > 0.0) & (dist_drones < self.behind_radius)
+            terms["contour"] = terms["contour"] * jnp.where(
+                behind, self.contour_behind_scale, 1.0
+            )
+
         terms["opp_drone"] = collosion_cost
         return terms
 

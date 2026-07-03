@@ -348,8 +348,12 @@ class AttitudeMPPIController(Controller):
             opp_pos = info["opponent_pos"]
             opp_vel = info["opponent_vel"]
             opp_traj = opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None])
+            # changedPractical: opponent heading per horizon step (constant-velocity model),
+            # threaded through refs so the anisotropic opp cost can read it without `self`.
+            opp_vel_traj = np.broadcast_to(opp_vel[None, :], opp_traj.shape)
         else:
             opp_traj = np.zeros_like(des_pos)
+            opp_vel_traj = np.zeros_like(des_pos)
 
         self.opp_traj = np.array(opp_traj)
 
@@ -359,6 +363,7 @@ class AttitudeMPPIController(Controller):
             "acc": jnp.array(des_acc, device=self.sim.device),
             "yaw": jnp.array(des_yaw, device=self.sim.device),
             "opp_pos": jnp.array(opp_traj, device=self.sim.device),
+            "opp_vel": jnp.array(opp_vel_traj, device=self.sim.device),
         }
 
         # 1. Update Step
