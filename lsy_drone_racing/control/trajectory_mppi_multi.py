@@ -78,6 +78,8 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
             return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
 
         # This backup is needed for the warmup of the controller
+        info["opponent_pos"] = np.zeros(3, dtype=np.float32)
+        info["opponent_vel"] = np.zeros(3, dtype=np.float32)
         return super().compute_control(obs, info)
 
     @partial(jax.jit, static_argnames=["self"])

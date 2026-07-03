@@ -251,11 +251,11 @@ class AttitudeMPPIController(Controller):
         # key = jax.random.PRNGKey(0)
         self._rng_key = jax.random.PRNGKey(0)
         self._rng_key, subkey = random.split(self._rng_key)
-        info_short = {"rng_key": subkey, "obstacles": jnp.array(initial_obs["obstacles_pos"])}
+        #info_short = {"rng_key": subkey, "obstacles": jnp.array(initial_obs["obstacles_pos"])}
 
         self._log_buf: dict | None = None  # must be set before warmup calls compute_control
         for i in range(10):
-            a = self.compute_control(initial_obs, info_short)  # Warm up the controller
+            a = self.compute_control(initial_obs, info)  # Warm up the controller
             jax.block_until_ready(a)
         # changedPractical: warmup advanced self._t by 10*ctrl_dt (~0.2s). Reset BOTH the master
         # clock and _t_start to 0 so (a) the first real step queries the spline at t≈0 and
@@ -344,12 +344,11 @@ class AttitudeMPPIController(Controller):
         query_times = np.clip(t + self.dt_array, 0.0, self._planner.t_total)
         des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(query_times)
         # changedPractical
-        if "opponent_pos" in info:
-            opp_pos = info["opponent_pos"]
-            opp_vel = info["opponent_vel"]
-            opp_traj = opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None])
-        else:
-            opp_traj = np.zeros_like(des_pos)
+        
+        opp_pos = info["opponent_pos"]
+        opp_vel = info["opponent_vel"]
+        opp_traj = opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None])
+        
 
         self.opp_traj = np.array(opp_traj)
 
