@@ -41,12 +41,18 @@ class AttitudeController_1(Controller):
         gate_out_offset_next = 0.10  # metres along vector from previous waypoint
 
         dip_degree = 120
+        no_dip = True
 
         point_at_obstacle = [True, True, True, False]
         obstacle_ind = np.array([1, 0, 3, 0])
-        offset_at_obstacle = np.array(
-            [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
-        )
+        if no_dip:
+            offset_at_obstacle = np.array(
+                [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, -0.2, 0.2], [0, 0, 0]]
+            )
+        else:
+            offset_at_obstacle = np.array(
+                [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
+            )
 
         waypoints = [self._start_pos]
 
@@ -85,7 +91,7 @@ class AttitudeController_1(Controller):
             add_normal_out = gate_out_offset - length_normal_out
 
             entry = pos - gate_in_dir_vec + add_normal_in * normal
-            if theta_dec < dip_degree:
+            if no_dip or theta_dec < dip_degree:
                 exit_ = pos + gate_out_dir_vec + add_normal_out * normal
             else:
                 # alternative computation since distance is opposide direction if theta_dec>90
@@ -95,6 +101,16 @@ class AttitudeController_1(Controller):
             waypoints.append(entry)
             waypoints.append(pos)
             waypoints.append(exit_)
+
+            if no_dip and i == 2:
+                #fly around 3. gate
+
+                side_axis = R.from_quat(quat).apply([0.0, 1.0, 0.0])
+
+                fly_araound = pos.copy() + 0.6 * side_axis
+                waypoints.append(fly_araound)
+
+            
 
             if point_at_obstacle[i]:
                 obs_pos = obs["obstacles_pos"][obstacle_ind[i]].copy()

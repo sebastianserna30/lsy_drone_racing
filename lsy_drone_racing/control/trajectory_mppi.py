@@ -983,7 +983,7 @@ class AttitudeMPPIController(Controller):
         positions = np.asarray(self.positions)  # (K, M, N, 3)
         costs = np.asarray(self.costs)  # (K, M)
         best_k = int(self.best_mode_idx)
-        n_viz = 5
+        n_viz = 3
 
         for k in range(self.K):
             rgb = _cluster_colors[k % len(_cluster_colors)]

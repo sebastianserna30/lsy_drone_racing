@@ -7,7 +7,7 @@
 file = "attitude_controller_multi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
 
 [controller.attitude] # AttitudeController parameters
-t_total = 8.8
+t_total = 9.8
 
 [[controller]]  # Add the controller files for each drone
 file = "trajectory_mppi_multi.py"
@@ -15,9 +15,9 @@ type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
 
 [controller.mppi] # MPPI parameters
-N = 25
-T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
-n_samples = 50000
+N = 30
+T = 0.6 # seconds, control horizon duration. Note that dt = T / horizon
+n_samples = 100000
 noise_sigma = 0.01 # Initial noise std
 temperature = 0.25
 elite_percentage = 0.01 # Top percent for averaging in [0,1]
@@ -45,7 +45,7 @@ yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
 obstacle = 10000.0 # per-obstacle collision penalty
 obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
 opp_drone = 10000.0 # per collision other drone penalty
-opp_drone_exp = 6 # weight of smoth collision cost using exponent was 13
+opp_drone_exp = 5 # weight of smoth collision cost using exponent was 13
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 
