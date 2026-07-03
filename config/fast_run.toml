@@ -14,8 +14,8 @@ t_total = 7.8
 
 
 [controller.mppi] # MPPI parameters
-N = 25
-T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
+N = 50
+T = 1 # seconds, control horizon duration. Note that dt = T / horizon
 n_samples = 50000
 noise_sigma = 0.01 # Initial noise std
 temperature = 0.25

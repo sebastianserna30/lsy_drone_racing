@@ -15,8 +15,8 @@ type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
 
 [controller.mppi] # MPPI parameters
-N = 25
-T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
+N = 50
+T = 1 # seconds, control horizon duration. Note that dt = T / horizon
 n_samples = 50000
 noise_sigma = 0.01 # Initial noise std
 temperature = 0.25
@@ -107,7 +107,7 @@ lookat = [0.0, 0.0, 0.0]
 
 [env]
 id = "MultiDroneRacing-v0"
-seed = -1               # -1 for random seeds or a non-zero integer for reproducibility
+seed = 3756812149               # -1 for random seeds or a non-zero integer for reproducibility
 [[env.kwargs]]
 freq = 50               # Frequency of the environment's step function, in Hz
 sensor_range = 0.7      # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.
