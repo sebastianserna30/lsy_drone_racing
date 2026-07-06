@@ -6,7 +6,9 @@ The rank index is used to select the state of the current drone.
 
 from __future__ import annotations  # Python 3.10 type hints
 
+import copy
 from functools import partial
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import jax
@@ -52,10 +54,23 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
 
         # Create a new ConfigDict
         config = ConfigDict(config_dict)
+        
 
-        self._gegner = SingleAttitudeMPPIController(
-            {k: v[self.opponent] for k, v in obs.items()}, info, config
-        )
+        self.opp_mppi = True
+        if self.opp_mppi:
+            config_opp = copy.deepcopy(config)
+            K_orig = config_opp.controller.mppi.K
+            new_n_samples = int(config_opp.controller.mppi.n_samples/K_orig)
+
+            #only use one mean and less samples for opponent
+            config_opp.controller.mppi.n_samples = new_n_samples
+            config_opp.controller.mppi.K = 1
+
+            self._opponent = SingleAttitudeMPPIController(
+                {k: v[self.opponent] for k, v in obs.items()}, info, config_opp
+            )
+        else:
+            self._opponent = SimpleNamespace()
 
         super().__init__({k: v[self.rank] for k, v in obs.items()}, info, config)
 
@@ -77,17 +92,23 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
 
         if first_value.ndim == 2:
             # This is the normal mode for multilevel where other drone is pressent in observations
-            self._gegner.compute_control({k: v[self.opponent] for k, v in obs.items()}, info)
-            opp_traj = self._gegner.best_traj
+            if self.opp_mppi:
+                self._opponent.compute_control({k: v[self.opponent] for k, v in obs.items()}, info)
+            else:
+                opp_pos = obs["pos"][self.opponent]
+                opp_vel = obs["vel"][self.opponent]
+                self._opponent.best_traj = np.array(opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None]))
 
-            info["opponent_traj"] = opp_traj
+            info["opponent_traj"] = self._opponent.best_traj
             return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
 
         # This backup is needed for the warmup of the controller
-        self._gegner.compute_control(obs, info)
-        opp_traj = self._gegner.best_traj
+        if self.opp_mppi:
+            self._opponent.compute_control(obs, info)
+        else:
+            self._opponent.best_traj = np.zeros((self.N, 3), dtype=np.float32)
 
-        info["opponent_traj"] = opp_traj
+        info["opponent_traj"] = self._opponent.best_traj
         return super().compute_control(obs, info)
 
     @partial(jax.jit, static_argnames=["self"])
@@ -153,4 +174,4 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
     def render_callback(self, sim: Sim):
         """Visualize the desired trajectory and the current setpoint."""
         super().render_callback(sim)
-        draw_line(sim, self.opp_traj, rgba=(0.0, 0.0, 1.0, 1.0))
+        draw_line(sim, self._opponent.best_traj, rgba=(0.0, 0.0, 1.0, 1.0))

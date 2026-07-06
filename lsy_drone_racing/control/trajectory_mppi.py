@@ -421,7 +421,7 @@ class AttitudeMPPIController(Controller):
 
         traj_best_group = positions_grouped[best_mode_idx]
         best_traj_idx = np.argmin(costs_grouped[best_mode_idx])
-        self.best_traj = traj_best_group[best_traj_idx]
+        self.best_traj = np.array(traj_best_group[best_traj_idx])
 
 
         # changedPractical: split the 5-dim winner into the 4 real attitude/thrust commands and
