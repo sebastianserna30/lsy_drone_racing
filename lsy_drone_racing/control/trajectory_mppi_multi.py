@@ -73,13 +73,15 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
 
         if first_value.ndim == 2:
             # This is the normal mode for multilevel where other drone is pressent in observations
-            info["opponent_pos"] = obs["pos"][self.opponent]
-            info["opponent_vel"] = obs["vel"][self.opponent]
+            opp_pos = obs["pos"][self.opponent]
+            opp_vel = obs["vel"][self.opponent]
+            opp_traj = opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None])
+
+            info["opponent_traj"] = opp_traj
             return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
 
         # This backup is needed for the warmup of the controller
-        info["opponent_pos"] = np.zeros(3, dtype=np.float32)
-        info["opponent_vel"] = np.zeros(3, dtype=np.float32)
+        info["opponent_traj"] = np.zeros((self.N, 3), dtype=np.float32)
         return super().compute_control(obs, info)
 
     @partial(jax.jit, static_argnames=["self"])

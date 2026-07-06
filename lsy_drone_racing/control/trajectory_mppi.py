@@ -345,9 +345,10 @@ class AttitudeMPPIController(Controller):
         des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(query_times)
         # changedPractical
         
-        opp_pos = info["opponent_pos"]
-        opp_vel = info["opponent_vel"]
-        opp_traj = opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None])
+        if "opponent_traj" in info:
+            opp_traj = info["opponent_traj"]
+        else:
+            opp_traj = np.zeros_like(des_pos)
         
 
         self.opp_traj = np.array(opp_traj)
@@ -417,6 +418,12 @@ class AttitudeMPPIController(Controller):
         self.costs = costs_grouped
         self.positions = positions_grouped
         self.mode_term_costs = mode_term_costs  # per-mode best-sample cost breakdown
+
+        traj_best_group = positions_grouped[best_mode_idx]
+        best_traj_idx = np.argmin(costs_grouped[best_mode_idx])
+        self.best_traj = traj_best_group[best_traj_idx]
+
+
         # changedPractical: split the 5-dim winner into the 4 real attitude/thrust commands and
         # the progress speed v_theta. Only the 4 real channels are EMA-smoothed and returned to
         # the env; v_theta is internal and used to advance the committed progress self._theta.
