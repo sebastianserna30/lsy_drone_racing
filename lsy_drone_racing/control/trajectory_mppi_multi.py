@@ -1,21 +1,18 @@
-"""This module wraps the AttitudeController to handle batched multi-agent environments.
+"""Multi-agent wrapper around the n_agents-generic AttitudeMPPIController.
 
-In multi-agent simulations, observations are batched across all drones.
-The rank index is used to select the state of the current drone.
+In multi-agent simulations, observations are batched across all drones. This thin wrapper reorders
+the batched observation so the ego drone (this controller's rank) is agent 0 and the opponent is
+agent 1, then delegates everything to the base controller, which models BOTH drones in one shared
+MPPI rollout batch (n_agents=2). The opponent is no longer a separate nested MPPI: it is drone 1 in
+the base's rollout, with its own spline, and the symmetric collision term lives in the base cost.
 """
 
 from __future__ import annotations  # Python 3.10 type hints
 
-import copy
-from functools import partial
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
-import jax
-import jax.numpy as jnp
 import numpy as np
 from crazyflow.sim import Sim
-from crazyflow.sim.visualize import draw_line, draw_points
 from ml_collections import ConfigDict
 
 from lsy_drone_racing.control.trajectory_mppi import (
@@ -23,141 +20,61 @@ from lsy_drone_racing.control.trajectory_mppi import (
 )
 
 if TYPE_CHECKING:
-    from crazyflow.sim.data import SimData
     from numpy.typing import NDArray
+
+# Per-drone state keys carry an agent axis into the base; every other key (gates, obstacles,
+# target_gate, ...) is an environment view we take from the ego's slice.
+_STATE_KEYS = ("pos", "quat", "vel", "ang_vel")
 
 
 class AttitudeMPPIController(SingleAttitudeMPPIController):
-    """Example of a controller using the collective thrust and attitude interface."""
+    """Multi-agent MPPI: reorder the batched obs (ego first) and hand it to the n_agents base."""
 
     def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict):
-        """Initialize the attitude controller.
+        """Initialize the multi-agent MPPI controller.
 
         Args:
-            obs: The initial observation of the environment's state. See the environment's
-                observation space for details.
-            info: Additional environment information from the reset.
+            obs: The initial batched observation of the environment's state (drone axis first).
+            info: Additional environment information from the reset (contains ``rank``).
             config: The configuration of the environment.
         """
         self.rank = info["rank"]
-        if self.rank == 0:
-            self.opponent = 1
-        else:
-            self.opponent = 0
+        self.opponent = 1 - self.rank  # two-drone race
 
+        # Pick this rank's controller sub-config, exactly as before.
         controller_cfg = config["controller"][self.rank]
-        # Convert to a plain dict first
         config_dict = config.to_dict()
-
-        # Replace controller
         config_dict["controller"] = controller_cfg
-
-        # Create a new ConfigDict
         config = ConfigDict(config_dict)
-        
 
-        self.opp_mppi = True
-        if self.opp_mppi:
-            config_opp = copy.deepcopy(config)
-            K_orig = config_opp.controller.mppi.K
-            new_n_samples = int(config_opp.controller.mppi.n_samples/K_orig)
+        # Reorder the batched obs so the ego is agent 0, then let the base build a 2-agent sim.
+        # During the base's warmup (which calls self.compute_control), the obs is already reordered,
+        # so guard against a second reorder with a flag.
+        self._warming_up = True
+        super().__init__(self._reorder(obs), info, config)
+        self._warming_up = False
 
-            #only use one mean and less samples for opponent
-            config_opp.controller.mppi.n_samples = new_n_samples
-            config_opp.controller.mppi.K = 1
+    def _reorder(self, obs: dict[str, NDArray[np.floating]]) -> dict[str, NDArray[np.floating]]:
+        """Reorder a batched observation so the ego (self.rank) is agent 0, opponent agent 1.
 
-            self._opponent = SingleAttitudeMPPIController(
-                {k: v[self.opponent] for k, v in obs.items()}, info, config_opp
-            )
-        else:
-            self._opponent = SimpleNamespace()
-
-        super().__init__({k: v[self.rank] for k, v in obs.items()}, info, config)
+        Per-drone state keys keep an agent axis (ego first); all other keys become the ego's view.
+        """
+        order = [self.rank, self.opponent]
+        out = {}
+        for k, v in obs.items():
+            v = np.asarray(v)
+            out[k] = v[order] if k in _STATE_KEYS else v[self.rank]
+        return out
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
     ) -> NDArray[np.floating]:
-        """Compute the next desired collective thrust and roll/pitch/yaw of the drone.
+        """Reorder the batched obs (ego first) and delegate to the base controller.
 
-        Args:
-            obs: The current observation of the environment. See the environment's observation space
-                for details.
-            info: Optional additional information as a dictionary.
-
-        Returns:
-            The orientation as roll, pitch, yaw angles, and the collective thrust
-            [r_des, p_des, y_des, t_des] as a numpy array.
+        Returns the ego (agent 0) collective thrust and roll/pitch/yaw [r, p, y, t].
         """
-        first_value = next(iter(obs.values()))
-
-        if first_value.ndim == 2:
-            # This is the normal mode for multilevel where other drone is pressent in observations
-            if self.opp_mppi:
-                self._opponent.compute_control({k: v[self.opponent] for k, v in obs.items()}, info)
-            else:
-                opp_pos = obs["pos"][self.opponent]
-                opp_vel = obs["vel"][self.opponent]
-                self._opponent.best_traj = np.array(opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None]))
-
-            info["opponent_traj"] = self._opponent.best_traj
-            return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
-
-        # This backup is needed for the warmup of the controller
-        if self.opp_mppi:
-            self._opponent.compute_control(obs, info)
-        else:
-            self._opponent.best_traj = np.zeros((self.N, 3), dtype=np.float32)
-
-        info["opponent_traj"] = self._opponent.best_traj
+        obs = obs if self._warming_up else self._reorder(obs)
         return super().compute_control(obs, info)
-
-    @partial(jax.jit, static_argnames=["self"])
-    def compute_cost(
-        self,
-        data: SimData,
-        theta: jnp.ndarray,
-        v_theta: jnp.ndarray,
-        reference: dict[str, jnp.ndarray],
-        obstacles: jnp.ndarray,
-        gate_frame_obstacles: jnp.ndarray,
-    ) -> dict[str, jnp.ndarray]:
-        """Add the opponent-drone collision term to the base per-term cost dict.
-
-        changedPractical: signature follows the MPCC base controller (theta, v_theta added);
-        this override only adds the opponent-collision term and forwards the rest.
-        """
-        ## 6. Collision Cost (Safety)
-        safe_dist = (
-            self.initial_info["experiment"]["env"]["drone_radius"] * 2.5
-        )  # 2 would be theory and added buffer
-
-        pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
-        opp_pos = reference["opp_pos"][..., None, :]  # Shape: (1, 3)
-        dist_drones = jnp.linalg.norm(pos - opp_pos, axis=-1)  # (n_rollouts,)
-
-        binary_cost = False
-
-        if binary_cost:
-            # per-rollout (n_rollouts,): single opponent, so no sum over an axis.
-            # (the old jnp.sum(..., axis=-1) collapsed this to a scalar that added the same
-            #  constant to every rollout — a no-op for elite/softmax selection)
-            opponent_drone_hits = jnp.where(dist_drones < safe_dist, 1, 0)
-            coll_cost = self.w_opp_drone * opponent_drone_hits
-        else:
-            # smooth collsion cost using exponent
-            coll_cost = self.w_opp_drone_exp * jnp.exp(-((dist_drones / safe_dist) ** 2))
-
-        use_collision_cost = True
-        if use_collision_cost:
-            collosion_cost = coll_cost
-        else:
-            collosion_cost = jnp.zeros(pos.shape[0])
-
-        terms = super().compute_cost(
-            data, theta, v_theta, reference, obstacles, gate_frame_obstacles
-        )
-        terms["opp_drone"] = collosion_cost
-        return terms
 
     def step_callback(
         self,
@@ -168,10 +85,9 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         truncated: bool | None = None,
         info: dict | None = None,
     ) -> bool:
-        """Increment the tick counter."""
+        """Advance the base bookkeeping using the ego's environment view."""
         return super().step_callback(action, {k: v[self.rank] for k, v in obs.items()})
 
     def render_callback(self, sim: Sim):
-        """Visualize the desired trajectory and the current setpoint."""
+        """Visualize the ego reference/rollouts (base handles ego + per-agent draws)."""
         super().render_callback(sim)
-        draw_line(sim, self._opponent.best_traj, rgba=(0.0, 0.0, 1.0, 1.0))

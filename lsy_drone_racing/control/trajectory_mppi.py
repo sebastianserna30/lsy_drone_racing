@@ -32,6 +32,81 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 
+def single_drone_terms(
+    pos: jnp.ndarray,
+    ang_vel: jnp.ndarray,
+    ang_acc: jnp.ndarray,
+    cmd: jnp.ndarray,
+    ref_pos: jnp.ndarray,
+    tangent: jnp.ndarray,
+    v_theta: jnp.ndarray,
+    obstacles: jnp.ndarray,
+    gate_frame_obstacles: jnp.ndarray,
+    save_dist_obst: float,
+    save_dist_gate_obst: float,
+    w: dict[str, float],
+) -> dict[str, jnp.ndarray]:
+    """Pure per-drone MPCC cost terms (no `self`, no opponent collision).
+
+    changedPractical: extracted verbatim from the old AttitudeMPPIController.compute_cost body so
+    the single-agent path and the n_agents-generic path share one implementation. Each input is
+    (n_rollouts, ...) for ONE drone; the caller supplies ref_pos/tangent (from the LUT) and the
+    static weight dict `w`. Returns a dict term_name -> (n_rollouts,). Byte-identical to the old
+    inline math (binary obstacle cost, no anisotropic collision — that lives in the caller).
+    """
+    ## 1. MPCC tracking cost — contour + lag + progress
+    err = pos - ref_pos  # (n_rollouts, 3)
+    # Lag error: signed component of err ALONG the path tangent (ahead +, behind -).
+    e_lag = jnp.sum(tangent * err, axis=-1)  # (n_rollouts,)
+    # Contour error: component PERPENDICULAR to the path (off-track distance).
+    e_con_vec = err - e_lag[:, None] * tangent  # (n_rollouts, 3)
+    lag_cost = e_lag**2 * w["lag"]
+    contour_cost = jnp.sum(e_con_vec**2, axis=-1) * w["contour"]
+    # Extra altitude penalty toward the reference height (kept from the old cost).
+    z_cost = jnp.abs(pos[..., 2] - ref_pos[..., 2]) * w["z"]
+    # Progress reward: advancing theta lowers cost (this is what removes the t_total ceiling).
+    progress_cost = -w["progress"] * v_theta
+    ang_vel_error = jnp.linalg.norm(ang_vel, axis=-1)
+    ang_vel_cost = ang_vel_error**2 * w["ang_vel"]
+    ang_acc_error = jnp.linalg.norm(ang_acc, axis=-1)
+    ang_acc_cost = ang_acc_error**2 * w["ang_acc"]
+
+    ## 2. Control Cost (Efficiency + Stability)
+    tilt_cost = jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * w["tilt"]
+    thrust_cost = (cmd[:, 3] - HOVER_THRUST) ** 2 * w["thrust"]
+    yaw_cost = (cmd[:, 2] - 0) ** 2 * w["yaw"]  # des_yaw should be 0
+
+    ## 3. Obstacle Cost (Safety) — binary hit count
+    obs_diff = jnp.linalg.norm(pos[..., None, :2] - obstacles[None, :, :2], axis=-1)
+    obstacle_hits = jnp.where(obs_diff < save_dist_obst, 1, 0)
+    obstacle_cost = w["obstacle"] * jnp.sum(obstacle_hits, axis=-1)
+
+    ## 4. Gate Obstacle Cost (Safety) — binary hit count
+    gate_obs_diff = jnp.linalg.norm(pos[..., None, :2] - gate_frame_obstacles[None, :, :2], axis=-1)
+    gate_obstacle_hits = jnp.where(gate_obs_diff < save_dist_gate_obst, 1, 0)
+    gate_obstacle_cost = w["obstacle"] * jnp.sum(gate_obstacle_hits, axis=-1)
+
+    ## 5. Floor penalty — prevents rollouts from sinking into the ground
+    floor_cost = jnp.where(
+        pos[..., 2] < w["floor_z"], (w["floor_z"] - pos[..., 2]) ** 2 * w["floor"], 0.0
+    )
+
+    return {
+        "lag": lag_cost,
+        "contour": contour_cost,
+        "z": z_cost,
+        "progress": progress_cost,
+        "ang_vel": ang_vel_cost,
+        "ang_acc": ang_acc_cost,
+        "tilt": tilt_cost,
+        "thrust": thrust_cost,
+        "yaw": yaw_cost,
+        "obstacle": obstacle_cost,
+        "gate_obstacle": gate_obstacle_cost,
+        "floor": floor_cost,
+    }
+
+
 class AttitudeMPPIController(Controller):
     """Multi-modal MPPI attitude controller for drone racing."""
 
@@ -84,8 +159,27 @@ class AttitudeMPPIController(Controller):
         )
         self.ctrl_dt = 1 / ctrl_cfg["ctrl_freq"]
         self.n_samples = mppi_cfg["n_samples"]
-        self.K = mppi_cfg["K"]
-        self.M = self.n_samples // self.K  # samples per mode
+        # changedPractical: n_agents-generic. agent 0 = ego (the drone we execute); agents 1.. are
+        # opponents modeled in the SAME shared rollout batch (one lax.scan, n_drones=n_agents).
+        # Single-agent configs give n_agents=1 and reduce to the original controller behavior.
+        _pos0 = np.asarray(initial_obs["pos"])
+        self.n_agents = _pos0.shape[0] if _pos0.ndim == 2 else 1
+        # Per-agent mode counts (ragged K allowed). ego K from mppi.K; per-agent overrides from
+        # the optional mppi.agents list. Each K must divide n_samples (worlds are shared, paired 1:1).
+        _agents_cfg = mppi_cfg.get("agents", [])
+
+        def _agent_cfg(a: int, key: str, default):
+            if a < len(_agents_cfg) and key in _agents_cfg[a]:
+                return _agents_cfg[a][key]
+            return default
+
+        self.K = [int(_agent_cfg(a, "K", mppi_cfg["K"])) for a in range(self.n_agents)]
+        self.M = [self.n_samples // k for k in self.K]  # samples per mode, per agent
+        for a, k in enumerate(self.K):
+            assert self.n_samples % k == 0, (
+                f"n_samples ({self.n_samples}) must be divisible by K[{a}]={k}"
+            )
+        self._agent_cfg = _agent_cfg  # stashed for per-agent spline params below
         # changedPractical: sampled control dim is now 5 = [roll, pitch, yaw, thrust, v_theta].
         # The sim only ever receives the first 4; v_theta is the MPCC progress speed integrated
         # in the rollout. Use self.num_inputs wherever the control dim was previously hardcoded as 4.
@@ -101,7 +195,7 @@ class AttitudeMPPIController(Controller):
 
         self.sim = Sim(
             n_worlds=self.n_samples,
-            n_drones=1,
+            n_drones=self.n_agents,  # changedPractical: both ego + opponents share one rollout batch
             attitude_freq=self.f,
             freq=self.f,
             physics=Physics.so_rpy_rotor_drag,
@@ -113,9 +207,7 @@ class AttitudeMPPIController(Controller):
 
         self.step_fn = self.sim.build_step_fn()
 
-        self.noise_sigmas = jnp.full(
-            (self.K, self.N, self.num_inputs), fill_value=mppi_cfg["noise_sigma"], device=self.sim.device
-        )
+        self._noise_sigma0 = float(mppi_cfg["noise_sigma"])
         self.temperature = mppi_cfg["temperature"]
         self.elite_percentage = mppi_cfg["elite_percentage"]
         self.beta = mppi_cfg["beta"]
@@ -143,6 +235,18 @@ class AttitudeMPPIController(Controller):
         self.w_obstacle_exp = float(cost_cfg.get("obstacle_exp", 20.0))
         self.w_opp_drone = float(cost_cfg.get("opp_drone", 2000.0))
         self.w_opp_drone_exp = float(cost_cfg.get("opp_drone_exp", 2000.0))
+        # changedPractical: anisotropic opponent keep-out (folded in from mppi++_overtake_improvements).
+        # Ellipse elongated ALONG the OTHER drone's real velocity heading: axial (fore/aft) > lateral,
+        # so sitting behind is costly, drawing alongside is cheap -> the low-cost escape is a
+        # sideways overtake, not a brake. Falls back to isotropic when the other drone is ~stationary.
+        self.use_anisotropic_opp = bool(cost_cfg.get("use_anisotropic_opp", False))
+        self.opp_axial = float(cost_cfg.get("opp_axial", 0.25))  # fore/aft keep-out half-length (m)
+        self.opp_lateral = float(cost_cfg.get("opp_lateral", 0.10))  # sideways keep-out half-width (m)
+        # behind-aware contour relaxation: when another drone is ahead-on-line and close, scale down
+        # our off-path (contour) cost so we can leave the line to pass. Opt-in (off on the branch).
+        self.use_behind_contour = bool(cost_cfg.get("use_behind_contour", False))
+        self.behind_radius = float(cost_cfg.get("behind_radius", 0.6))
+        self.contour_behind_scale = float(cost_cfg.get("contour_behind_scale", 0.15))
         self.w_floor = float(cost_cfg.get("floor", 500.0))
         self.floor_z = float(cost_cfg.get("floor_z", 0.1))
         # changedPractical: MPCC contour/lag/progress weights. The reference is
@@ -153,6 +257,22 @@ class AttitudeMPPIController(Controller):
         self.w_contour = float(cost_cfg.get("contour", 40.0))  # off-path penalty
         self.w_lag = float(cost_cfg.get("lag", 800.0))  # ahead/behind-of-theta penalty (heavy)
         self.w_progress = float(cost_cfg.get("progress", 2.0))  # mu: reward for advancing theta
+        # changedPractical: static weight dict passed to the pure single_drone_terms(). Values are
+        # baked as trace-time constants when the jitted cost is compiled (same as before).
+        self._weights = {
+            "lag": self.w_lag,
+            "contour": self.w_contour,
+            "z": self.w_z,
+            "progress": self.w_progress,
+            "ang_vel": self.w_ang_vel,
+            "ang_acc": self.w_ang_acc,
+            "tilt": self.w_tilt,
+            "thrust": self.w_thrust,
+            "yaw": self.w_yaw,
+            "obstacle": self.w_obstacle,
+            "floor": self.w_floor,
+            "floor_z": self.floor_z,
+        }
         spline_cfg = mppi_cfg.get("spline", {})
         self._spline_t_total = float(spline_cfg.get("t_total", 4.1))
         self._spline_curvature_weight = float(spline_cfg.get("curvature_weight", 2.0))
@@ -164,14 +284,20 @@ class AttitudeMPPIController(Controller):
         self.v_theta_init = float(mppi_cfg.get("v_theta_init", 2.0))  # ~s_total/t_total
         self.v_theta_max = float(mppi_cfg.get("v_theta_max", 6.0))
         self.v_theta_sigma = float(mppi_cfg.get("v_theta_sigma", 0.5))
-        # v_theta channel gets its own (larger) noise scale — different units from rad/thrust
-        self.noise_sigmas = self.noise_sigmas.at[:, :, 4].set(self.v_theta_sigma)
-
-        # changedPractical: initialise thrust channel to hover so MPPI starts from a stable
-        # baseline, and v_theta channel to a nominal forward progress speed
-        _init = jnp.zeros((self.K, self.N, self.num_inputs), device=self.sim.device)
-        _init = _init.at[:, :, 3].set(HOVER_THRUST)
-        self.mean_controls = _init.at[:, :, 4].set(self.v_theta_init)
+        # changedPractical: per-agent (ragged K) means & sigmas, kept as length-n_agents lists.
+        # noise_sigmas[a]/mean_controls[a] have shape (K_a, N, 5). Thrust channel starts at hover,
+        # v_theta channel at the nominal forward progress speed; the v_theta noise channel gets its
+        # own (larger) scale (different units from rad/thrust).
+        self.noise_sigmas = []
+        self.mean_controls = []
+        for k in self.K:
+            sig = jnp.full((k, self.N, self.num_inputs), self._noise_sigma0, device=self.sim.device)
+            sig = sig.at[:, :, 4].set(self.v_theta_sigma)
+            self.noise_sigmas.append(sig)
+            m = jnp.zeros((k, self.N, self.num_inputs), device=self.sim.device)
+            m = m.at[:, :, 3].set(HOVER_THRUST)
+            m = m.at[:, :, 4].set(self.v_theta_init)
+            self.mean_controls.append(m)
 
         # Shape: (Num_Obstacles, 3)
         # changedPractical
@@ -201,34 +327,43 @@ class AttitudeMPPIController(Controller):
             mppi_cfg.get("action_ema", 0.4)
         )  # blend: ema * new + (1-ema) * prev
 
-        self._start_pos = initial_obs["pos"].copy()
+        # changedPractical: per-agent start positions (A,3). Agent 0 = ego; agents 1.. = opponents.
+        # Preserve the observation dtype (no float64 cast) so the ego spline is bit-identical to the
+        # pre-refactor single-agent controller (the chaotic MPPI amplifies any tiny LUT perturbation).
+        _start = np.asarray(initial_obs["pos"])
+        if _start.ndim == 1:
+            _start = _start[None, :]
+        self._start_pos = _start.copy()  # (A, 3)
         self._last_gates_pos = None
         self._last_gates_quat = None
-        self._planner = SplinePlanner(
-            self._start_pos,
-            initial_obs,
-            t_total=self._spline_t_total,  # changedPractical: was 5.0; target matches PPO lap time (3.20s)
-            curvature_weight=self._spline_curvature_weight,  #  changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1 curve)
-            obstacles_pos=initial_obs[
-                "obstacles_pos"
-            ],  # changedPractical: obs1 at (1.0,0.25) is 0.03m from no-detour spline
-            clearance=self._spline_clearance,  # changedPractical: 0.16-0.21 flips obs3 detour to SW (wrong side, path 8.0m); 0.22 stays NE (path 7.74m, min_obs 0.21m)
-        )
+        # changedPractical: one SplinePlanner per agent (same gates, per-agent start + optional
+        # per-agent t_total/clearance so an opponent flies a different racing line than the ego).
+        self._planner = [
+            SplinePlanner(
+                self._start_pos[a],
+                initial_obs,
+                t_total=float(self._agent_cfg(a, "t_total", self._spline_t_total)),
+                curvature_weight=float(
+                    self._agent_cfg(a, "curvature_weight", self._spline_curvature_weight)
+                ),
+                obstacles_pos=initial_obs["obstacles_pos"],
+                clearance=float(self._agent_cfg(a, "clearance", self._spline_clearance)),
+            )
+            for a in range(self.n_agents)
+        ]
 
-        # changedPractical: build the arc-length LUT for the MPCC reparameterization. The spline
-        # is fixed at reset (planner is never replanned), so the LUT can be baked into the JIT'd
-        # cost as trace-time constants via self — no need to thread it through the call chain like
-        # `obstacles` (which DO change at level 2).
-        self._build_theta_lut(self._lut_samples)
-        # committed progress along the path (arc length, m). Rollouts start each horizon here.
-        self._theta = 0.0
+        # changedPractical: build per-agent arc-length LUTs for the MPCC reparameterization, stacked
+        # on a leading agent axis for vmap in the cost. Splines are fixed at reset.
+        self._build_theta_luts(self._lut_samples)
+        # committed progress (arc length, m) per agent. Rollouts start each horizon here.
+        self._theta = [0.0] * self.n_agents
 
         self._finished = False
         # changedPractical
         # self._t_start = initial_obs["t"]
         self._t_start = self._t
         # self._t_end = initial_info["planner_cycles"] * initial_info["planner_cycle_time"]
-        self._t_end = self._planner.t_total
+        self._t_end = self._planner[0].t_total  # ego
 
         ### Generate trajectory
         # changedPractical
@@ -264,57 +399,71 @@ class AttitudeMPPIController(Controller):
         # TODO: Check this before real-hardware test;
         self._t = 0.0
         self._t_start = 0.0
-        self._theta = 0.0  # changedPractical: drop warmup progress so the first real step starts at theta=0
+        self._theta = [0.0] * self.n_agents  # changedPractical: drop warmup progress; start at theta=0
 
         if os.getenv("LOG_DRONE_DATA"):
             # Buffer is populated lazily via setdefault in _log_step_costs; see that method
             # for the logged keys (per-mode, per-term full-horizon rollout costs).
             self._log_buf = {}
 
-    def _build_theta_lut(self, n_samples: int) -> None:
-        """Reparameterize the (time-based) spline to arc-length progress theta; cache a LUT.
+    def _build_theta_luts(self, n_lut: int) -> None:
+        """Reparameterize each agent's (time-based) spline to arc-length progress theta; cache LUTs.
 
-        Densely sample the planner's position spline in time, accumulate segment lengths to
-        get arc length (= theta), and store position + unit-tangent tables keyed on theta.
-        Inside the rollout, ref(theta) is recovered with jnp.interp (see _ref_at_theta). This is
-        the JAX/MPPI analog of basic_mpcc.py's cs.interpolant LUTs, but keyed on arc length
-        (so v_theta has units m/s) instead of time.
+        For every agent, densely sample the planner's position spline in time, accumulate segment
+        lengths to get arc length (= theta), and store position + unit-tangent tables keyed on
+        theta. Tables are stacked on a leading agent axis (A, n_lut, ...) so the cost can vmap the
+        LUT lookup over agents. Inside the rollout, ref(theta) is recovered with jnp.interp
+        (see _ref_at_theta). Keyed on arc length (so v_theta has units m/s) instead of time.
         """
-        t_dense = np.linspace(0.0, self._planner.t_total, n_samples)
-        pos = np.asarray(self._planner._pos_spline(t_dense))  # (n, 3)
-        seg = np.linalg.norm(np.diff(pos, axis=0), axis=1)
-        s = np.concatenate([[0.0], np.cumsum(seg)])  # arc-length grid = theta, (n,)
-        vel = np.asarray(self._planner._vel_spline(t_dense))
-        tangent = vel / np.clip(np.linalg.norm(vel, axis=1, keepdims=True), 1e-9, None)
-        self._s_total = float(s[-1])
-        # device copies baked into the JIT'd cost
-        self._theta_grid = jnp.asarray(s, device=self.sim.device)
-        self._ref_pos_lut = jnp.asarray(pos, device=self.sim.device)
-        self._ref_tan_lut = jnp.asarray(tangent, device=self.sim.device)
-        # host copies for logging / rendering
-        self._theta_grid_np = s
-        self._ref_pos_np = pos
+        grids, pos_luts, tan_luts, s_totals = [], [], [], []
+        for planner in self._planner:
+            t_dense = np.linspace(0.0, planner.t_total, n_lut)
+            pos = np.asarray(planner._pos_spline(t_dense))  # (n_lut, 3)
+            seg = np.linalg.norm(np.diff(pos, axis=0), axis=1)
+            s = np.concatenate([[0.0], np.cumsum(seg)])  # arc-length grid = theta, (n_lut,)
+            vel = np.asarray(planner._vel_spline(t_dense))
+            tangent = vel / np.clip(np.linalg.norm(vel, axis=1, keepdims=True), 1e-9, None)
+            grids.append(s)
+            pos_luts.append(pos)
+            tan_luts.append(tangent)
+            s_totals.append(float(s[-1]))
+        dev = self.sim.device
+        # stacked device copies (A, n_lut, ...) baked into the JIT'd cost
+        self._theta_grid = jnp.asarray(np.stack(grids), device=dev)  # (A, n_lut)
+        self._ref_pos_lut = jnp.asarray(np.stack(pos_luts), device=dev)  # (A, n_lut, 3)
+        self._ref_tan_lut = jnp.asarray(np.stack(tan_luts), device=dev)  # (A, n_lut, 3)
+        self._s_total = jnp.asarray(np.array(s_totals), device=dev)  # (A,)
+        # host copies (per agent) for logging / rendering / theta re-anchoring
+        self._theta_grid_np = [np.asarray(g) for g in grids]
+        self._ref_pos_np = [np.asarray(p) for p in pos_luts]
+        self._s_total_np = np.array(s_totals)
 
-    def _ref_at_theta(self, theta: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _ref_at_theta(
+        self,
+        theta: jnp.ndarray,
+        tg: jnp.ndarray,
+        pos_lut: jnp.ndarray,
+        tan_lut: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """LUT lookup: reference position and unit path tangent at progress theta (arc length).
 
-        theta is a scalar; vmap over rollouts. Clipped to [0, s_total] so the rollout never
-        extrapolates past the path ends (mirrors the query_times clamp in compute_control).
+        theta is a scalar; vmap over rollouts. LUT arrays (tg, pos_lut, tan_lut) are passed
+        explicitly so the same helper serves any agent's spline (no self.-bound single LUT).
+        Clipped to [0, s_total] so the rollout never extrapolates past the path ends.
         """
-        tg = self._theta_grid
         theta = jnp.clip(theta, tg[0], tg[-1])
         pos = jnp.stack(
             [
-                jnp.interp(theta, tg, self._ref_pos_lut[:, 0]),
-                jnp.interp(theta, tg, self._ref_pos_lut[:, 1]),
-                jnp.interp(theta, tg, self._ref_pos_lut[:, 2]),
+                jnp.interp(theta, tg, pos_lut[:, 0]),
+                jnp.interp(theta, tg, pos_lut[:, 1]),
+                jnp.interp(theta, tg, pos_lut[:, 2]),
             ]
         )
         tan = jnp.stack(
             [
-                jnp.interp(theta, tg, self._ref_tan_lut[:, 0]),
-                jnp.interp(theta, tg, self._ref_tan_lut[:, 1]),
-                jnp.interp(theta, tg, self._ref_tan_lut[:, 2]),
+                jnp.interp(theta, tg, tan_lut[:, 0]),
+                jnp.interp(theta, tg, tan_lut[:, 1]),
+                jnp.interp(theta, tg, tan_lut[:, 2]),
             ]
         )
         tan = tan / jnp.clip(jnp.linalg.norm(tan), 1e-9, None)
@@ -334,109 +483,97 @@ class AttitudeMPPIController(Controller):
             The collective thrust and orientation [r_des, p_des, y_des, t_des] as a numpy array.
         """
         self._t += self.ctrl_dt
+        A = self.n_agents
 
-        obs["rotor_vel"] = self.thrust
-        obs_device = {k: jax.device_put(v, self.sim.device) for k, v in obs.items()}
-        # changedPractical
-        t = self._t - self._t_start
+        # changedPractical: normalize the observed state to per-agent arrays (A, ...). Single-agent
+        # obs is (…,); multi obs is (A, …). Agent 0 is always the ego (executed) drone.
+        def _per_agent(v: NDArray, dim: int) -> NDArray:
+            v = np.asarray(v)
+            return v[None, :] if v.ndim == 1 else v  # (A, dim)
 
-        # changedPractical: clamp query times so rollout never extrapolates past spline end
-        query_times = np.clip(t + self.dt_array, 0.0, self._planner.t_total)
-        des_pos, des_vel, des_acc, des_yaw = self._planner.get_coordinates(query_times)
-        # changedPractical
-        
-        if "opponent_traj" in info:
-            opp_traj = info["opponent_traj"]
-        else:
-            opp_traj = np.zeros_like(des_pos)
-        
-
-        self.opp_traj = np.array(opp_traj)
-
-        refs = {
-            "pos": jnp.array(des_pos, device=self.sim.device),
-            "vel": jnp.array(des_vel, device=self.sim.device),
-            "acc": jnp.array(des_acc, device=self.sim.device),
-            "yaw": jnp.array(des_yaw, device=self.sim.device),
-            "opp_pos": jnp.array(opp_traj, device=self.sim.device),
+        pos_obs = _per_agent(obs["pos"], 3)  # (A, 3)
+        quat_obs = _per_agent(obs["quat"], 4)
+        vel_obs = _per_agent(obs["vel"], 3)
+        angv_obs = _per_agent(obs["ang_vel"], 3)
+        # rotor state per agent: reuse the ego thrust filter for all agents (opponent rotor state
+        # is unobserved; a hover-ish proxy is adequate for a prediction rollout).
+        rotor_obs = np.broadcast_to(np.asarray(self.thrust), (A, 4))
+        obs_state = {
+            "pos": jnp.asarray(pos_obs, device=self.sim.device),
+            "quat": jnp.asarray(quat_obs, device=self.sim.device),
+            "vel": jnp.asarray(vel_obs, device=self.sim.device),
+            "ang_vel": jnp.asarray(angv_obs, device=self.sim.device),
+            "rotor_vel": jnp.asarray(rotor_obs, device=self.sim.device),
         }
 
-        # 1. Update Step
-        # Now returns a batch of means and sigmas
+        # changedPractical: per-agent starting progress theta0. Ego integrates its committed
+        # progress; opponents re-anchor by projecting their OBSERVED position onto their own spline
+        # LUT each step (self-correcting, robust to prediction drift).
+        theta_starts = []
+        for a in range(A):
+            if a == 0:
+                theta_starts.append(self._theta[0])
+            else:
+                d = np.linalg.norm(self._ref_pos_np[a] - pos_obs[a][None, :], axis=1)
+                th = float(self._theta_grid_np[a][int(d.argmin())])
+                self._theta[a] = th
+                theta_starts.append(th)
+        theta0 = jnp.asarray(np.array(theta_starts), device=self.sim.device)  # (A,)
+        theta0 = jnp.broadcast_to(theta0[None, :], (self.n_samples, A))  # (W, A)
 
-        # changedPractical
         self._rng_key, subkey = jax.random.split(self._rng_key)
 
-        # changedPractical: MPCC — every rollout starts the horizon at the committed progress
-        # self._theta (arc length, m), then integrates its own sampled v_theta forward.
-        theta0 = jnp.full((self.n_samples,), self._theta, device=self.sim.device)
-
+        # ONE shared rollout: returns per-agent lists.
         (
             new_means,
             new_sigmas,
-            best_mode_idx,
+            best_idx,
             costs_grouped,
             positions_grouped,
             mode_term_costs,
-        ) = (
-            self._mppi_core_update(
-                subkey,
-                obs_device,
-                refs,
-                theta0,
-                self.mean_controls,  # Shape: (K, Horizon, U)
-                self.noise_sigmas,  # Shape: (K, Horizon, U)
-            )
+        ) = self._mppi_core_update(
+            subkey,
+            obs_state,
+            theta0,
+            self.mean_controls,
+            self.noise_sigmas,
+            self.obstacles,
+            self.gate_frame_obstacles,
         )
 
-        # 2. Extract Action from the "Winner" Mode
-        # We only execute the action from the best cluster
-        best_action = new_means[best_mode_idx, 0]  # 5-dim: [roll, pitch, yaw, thrust, v_theta]
+        # Execute ONLY the ego (agent 0) winner; opponents are internal predictions.
+        ego_best = best_idx[0]
+        best_action = new_means[0][ego_best, 0]  # 5-dim: [roll, pitch, yaw, thrust, v_theta]
 
-        # 3. Receding Horizon Update (Shift & Interpolate)
-        # We need to shift ALL K means, not just the active one.
-        # We vmap your existing helper over the first dimension (K).
-        # in_axes=(0, None, None) means:
-        #   - arg 0 (mean/sigma): split along axis 0
-        #   - arg 1 (dt): broadcast
-        #   - arg 2 (ctrl_dt): broadcast
+        # Receding-horizon shift of every agent's means & sigmas.
         vmap_shift = jax.vmap(self.shift_and_interpolate, in_axes=(0, None, None))
-        self.mean_controls = vmap_shift(new_means, self.dt, self.ctrl_dt)
+        self.mean_controls = [vmap_shift(m, self.dt, self.ctrl_dt) for m in new_means]
+        self.noise_sigmas = [vmap_shift(s, self.dt, self.ctrl_dt) for s in new_sigmas]
 
-        # We also shift the sigmas!
-        # This ensures that if the drone is "confident" about the path 2 seconds away,
-        # that confidence rolls forward correctly.
-        self.noise_sigmas = vmap_shift(new_sigmas, self.dt, self.ctrl_dt)
-
-        # Optional: Reset logic (Pseudo-code)
-        # If you wanted to prevent mode collapse, this is where you'd check
-        # if means are too close and reset one.
-        # self.mean_controls = self._check_and_reset_modes(self.mean_controls)
-
-        self.best_mode_idx = best_mode_idx  # Store for visualization outside of JIT
+        # Store for visualization / logging (ego-focused, plus per-agent for opponent rendering).
+        self.best_mode_idx = int(ego_best)
         self.means = new_means
-        self.costs = costs_grouped
-        self.positions = positions_grouped
-        self.mode_term_costs = mode_term_costs  # per-mode best-sample cost breakdown
-
-        traj_best_group = positions_grouped[best_mode_idx]
-        best_traj_idx = np.argmin(costs_grouped[best_mode_idx])
-        self.best_traj = np.array(traj_best_group[best_traj_idx])
-
+        self.costs = costs_grouped[0]
+        self.positions = positions_grouped[0]
+        self.all_positions = positions_grouped  # per agent (K_a, M_a, N, 3)
+        self.all_best_idx = [int(b) for b in best_idx]
+        self.all_costs = costs_grouped
+        self.mode_term_costs = mode_term_costs[0]  # ego per-mode best-sample cost breakdown
 
         # changedPractical: split the 5-dim winner into the 4 real attitude/thrust commands and
         # the progress speed v_theta. Only the 4 real channels are EMA-smoothed and returned to
-        # the env; v_theta is internal and used to advance the committed progress self._theta.
+        # the env; v_theta is internal and used to advance the committed progress self._theta[0].
         full_action = np.asarray(best_action)  # back to CPU, 5-dim
         v_theta_cmd = float(full_action[4])
         action = full_action[:4]
         # changedPractical: EMA smoothing to damp inter-step oscillations from mode switching
         action = self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
         self._prev_action = action
-        # commit progress: advance theta by the executed v_theta over one control cycle
-        self._theta = float(min(self._theta + v_theta_cmd * self.ctrl_dt, self._s_total))
+        # commit ego progress: advance theta by the executed v_theta over one control cycle
+        s_total_ego = float(self._s_total_np[0])
+        self._theta[0] = float(min(self._theta[0] + v_theta_cmd * self.ctrl_dt, s_total_ego))
         self.v_theta_cmd = v_theta_cmd  # store for logging / debugging
-        if self._theta >= self._s_total - 1e-3:
+        if self._theta[0] >= s_total_ego - 1e-3:
             self._finished = True
         self.thrust += (
             self.drone_params["thrust_dyn_coef"] * (action[3] - self.thrust) * self.ctrl_dt
@@ -538,175 +675,156 @@ class AttitudeMPPIController(Controller):
         np.savez(
             out_path,
             **{k: np.array(v) for k, v in self._log_buf.items()},
-            spline=self._planner.get_trajectory(300),
-            waypoints=self._planner.waypoints,
+            spline=self._planner[0].get_trajectory(300),
+            waypoints=self._planner[0].waypoints,
             gates_pos=self.initial_obs["gates_pos"],
             gates_quat=self.initial_obs["gates_quat"],
             obstacles_pos=self.initial_obs["obstacles_pos"],
         )
         print(f"[MPPI] Saved {len(self._log_buf['t'])} steps → {out_path}")
 
+    def _sample_agent(
+        self, key: jax.Array, mean: jnp.ndarray, sigma: jnp.ndarray, K: int, M: int
+    ) -> jnp.ndarray:
+        """Sample + beta-smooth truncated-normal noise for ONE agent's K modes.
+
+        Returns (K, M, N, nu). Bounds are relative to each mode's mean so samples stay in the
+        physical action box. Called inside the jitted core update; K/M are static python ints.
+        """
+        lower_bound = self.act_low - mean  # (K, N, nu)
+        upper_bound = self.act_high - mean
+        keys = jax.random.split(key, K)
+
+        def sample_per_mean(k_key, k_sigma, k_lb, k_ub):
+            return self.get_truncated_normal_jax(
+                k_key, mean=0, sd=k_sigma,
+                x_min=k_lb[None, ...], x_max=k_ub[None, ...],
+                shape=(M, self.N, self.num_inputs),
+            )
+
+        noise = vmap(sample_per_mean)(keys, sigma, lower_bound, upper_bound)  # (K, M, N, nu)
+
+        # beta smoothing along the horizon (flatten K,M for the scan)
+        noise_flat = noise.reshape(-1, self.N, self.num_inputs)
+
+        def smooth_scan(carry, x):
+            new_val = self.beta * carry + (1 - self.beta) * x
+            return new_val, new_val
+
+        _, noise_flat = jax.lax.scan(
+            lambda c, x: vmap(smooth_scan)(c, x),
+            jnp.zeros((noise_flat.shape[0], self.num_inputs)),
+            noise_flat.transpose(1, 0, 2),
+        )
+        noise_flat = noise_flat.transpose(1, 0, 2)
+        return noise_flat.reshape(K, M, self.N, self.num_inputs)
+
+    def _update_modes(
+        self,
+        mean: jnp.ndarray,
+        sigma: jnp.ndarray,
+        noise: jnp.ndarray,
+        costs_grouped: jnp.ndarray,
+        K: int,
+        M: int,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Elite/softmax per-mode MPPI update for ONE agent (vmapped over its K modes).
+
+        Returns (new_means (K,N,nu), new_sigmas (K,N,nu), best_mode_idx). Byte-identical to the
+        original update_single_mode logic.
+        """
+
+        def update_single_mode(k_mean, k_noise, k_costs, k_sigma):
+            sorted_idx = jnp.argsort(k_costs)
+            n_elites = max(int(M * self.elite_percentage), 1)
+            elite_idx = sorted_idx[:n_elites]
+            elite_noise = k_noise[elite_idx]
+            elite_costs = k_costs[elite_idx]
+            min_cost = jnp.min(elite_costs)
+            weights = jnp.exp(-(elite_costs - min_cost) / self.temperature)
+            weights = weights / (jnp.sum(weights) + 1e-10)
+            delta = jnp.sum(weights[:, None, None] * elite_noise, axis=0)
+            diff = elite_noise - delta
+            weighted_var = jnp.sum(weights[:, None, None] * (diff**2), axis=0)
+            new_sigma_sq = self.alpha * weighted_var + (1.0 - self.alpha) * (k_sigma**2)
+            new_sigma_sq = jnp.maximum(new_sigma_sq, self.min_variance)
+            return k_mean + delta, jnp.sqrt(new_sigma_sq), min_cost
+
+        updated_means, updated_sigmas, cluster_best_costs = vmap(update_single_mode)(
+            mean, noise, costs_grouped, sigma
+        )
+        best_mode_idx = jnp.argmin(cluster_best_costs)
+        return updated_means, updated_sigmas, best_mode_idx
+
     @partial(jax.jit, static_argnames=["self"])
     def _mppi_core_update(
         self,
         key: jax.Array,
         obs: dict[str, jnp.ndarray],
-        refs: dict[str, jnp.ndarray],
         theta0: jnp.ndarray,
-        current_means: jnp.ndarray,
-        noise_sigmas: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """Internal MPPI update: sample, roll out, evaluate costs, update means.
+        means: list[jnp.ndarray],
+        sigmas: list[jnp.ndarray],
+        obstacles: jnp.ndarray,
+        gate_frame_obstacles: jnp.ndarray,
+    ) -> tuple[list, list, list, list, list, list]:
+        """Joint MPPI update over ALL agents in ONE shared rollout batch.
 
-        current_means: (K, Horizon, nu) - K different control strategies
-        noise_sigmas: (K, Horizon, nu) - Adaptive variance for each strategy
-        theta0: (n_samples,) - starting progress (arc length) for each rollout
+        means/sigmas: length-n_agents lists; means[a]/sigmas[a] are (K_a, N, nu). theta0: (W, A).
+        The expensive rollout is a single lax.scan; the per-agent sampling and elite update are a
+        short (length-n_agents) Python loop, needed only because K may be ragged across agents.
+
+        Returns per-agent lists: new_means, new_sigmas, best_mode_idx, costs_grouped (K_a, M_a),
+        positions_grouped (K_a, M_a, N, 3), mode_term_costs (dict term -> (K_a,)).
         """
-        # --- 1. PREPARE BOUNDS ---
-        # Shape: (K, Horizon, 4) -> Broadcast for sampling later
-        # We need to look at bounds relative to each specific mean
-        lower_bound = self.act_low - current_means
-        upper_bound = self.act_high - current_means
+        # Per-agent RNG keys. For a single agent, reuse `key` directly so the sampled noise is
+        # byte-identical to the pre-refactor single-agent controller.
+        if self.n_agents == 1:
+            agent_keys = [key]
+        else:
+            agent_keys = list(jax.random.split(key, self.n_agents))
 
-        # --- 2. SAMPLING (Stratified by Mean) ---
-        # We generate M samples for EACH of the K means.
-        # Total samples = K * M = self.n_samples
-
-        # We need separate keys for each cluster to ensure independence
-        keys = jax.random.split(key, self.K)
-
-        def sample_per_mean(
-            k_key: jax.Array,
-            k_mean: jnp.ndarray,
-            k_sigma: jnp.ndarray,
-            k_lb: jnp.ndarray,
-            k_ub: jnp.ndarray,
-        ) -> jnp.ndarray:
-            # Generate noise for ONE mean
-            # Shape: (M, Horizon, 4)
-            k_noise = self.get_truncated_normal_jax(
-                k_key,
-                mean=0,
-                sd=k_sigma,
-                x_min=k_lb[None, ...],
-                x_max=k_ub[None, ...],
-                shape=(self.M, self.N, self.num_inputs),
+        # --- 1. SAMPLE + assemble the shared control tensor (N, W, A, nu) ---
+        noises, cands = [], []
+        for a in range(self.n_agents):
+            noise_a = self._sample_agent(agent_keys[a], means[a], sigmas[a], self.K[a], self.M[a])
+            noises.append(noise_a)
+            # candidate controls Mean[k] + Noise[k,m] -> (N, K_a*M_a=W, nu). world = k*M_a + m.
+            cand_a = (means[a][:, None, ...] + noise_a).transpose(2, 0, 1, 3).reshape(
+                self.N, self.n_samples, self.num_inputs
             )
-            return k_noise
+            cands.append(cand_a)
+        controls = jnp.stack(cands, axis=2)  # (N, W, A, nu)
 
-        # Vectorize sampling over K means
-        # noise shape: (K, M, Horizon, 4)
-        noise = vmap(sample_per_mean)(keys, current_means, noise_sigmas, lower_bound, upper_bound)
-
-        # --- 3. NOISE SMOOTHING ---
-        # Apply beta smoothing. We can flatten K and M dimensions for this operation
-        # or vmap twice. Flattening is easier.
-        noise_flat = noise.reshape(-1, self.N, self.num_inputs)  # (N, H, num_inputs)
-
-        def smooth_scan(carry: jnp.ndarray, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-            new_val = self.beta * carry + (1 - self.beta) * x
-            return new_val, new_val
-
-        # Initialize smooth scan with zeros
-        _, noise_flat = jax.lax.scan(
-            lambda c, x: vmap(smooth_scan)(c, x),
-            jnp.zeros((noise_flat.shape[0], self.num_inputs)),
-            # jnp.ones((noise_flat.shape[0], self.num_inputs)) * noise_flat[:, 0, :],
-            noise_flat.transpose(1, 0, 2),
+        # --- 2. ONE rollout of all agents together ---
+        totals, positions, terms = self.rollout_sim(
+            obs, theta0, (controls, obstacles, gate_frame_obstacles)
         )
-        noise_flat = noise_flat.transpose(1, 0, 2)
+        # totals: (W, A); positions: (N, W, A, 3); terms: dict of (W, A)
 
-        # Reshape back to grouped format: (K, M, H, nu)
-        noise = noise_flat.reshape(self.K, self.M, self.N, self.num_inputs)
-
-        # --- 4. ROLLOUTS ---
-        # Calculate candidate controls: Mean[k] + Noise[k, m]
-        # Broadcasting: (K, 1, H, 4) + (K, M, H, 4)
-        candidate_controls = current_means[:, None, ...] + noise
-
-        # Flatten for the physics engine (Physics doesn't care about K clusters)
-        # 1. Transpose from (K, M, N, nu) -> (N, K, M, nu)
-        # 2. Reshape to (N, K*M, nu)
-        controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, self.num_inputs)
-
-        costs_flat, positions_flat, terms_flat = self.rollout_sim(
-            obs, theta0, (controls_flat, refs, self.obstacles, self.gate_frame_obstacles)
-        )
-
-        # Reshape costs back to groups: (K, M)
-        costs_grouped = costs_flat.reshape(self.K, self.M)
-        positions_grouped = positions_flat.transpose(1, 0, 2, 3).reshape(self.K, self.M, self.N, 3)
-        # Per-mode cost breakdown: take each mode's best (lowest-total) sample, the
-        # trajectory that mode "proposes". mode_term_costs[name] has shape (K,).
-        best_sample = jnp.argmin(costs_grouped, axis=1)  # (K,)
-        k_idx = jnp.arange(self.K)
-        mode_term_costs = {
-            name: v.reshape(self.K, self.M)[k_idx, best_sample] for name, v in terms_flat.items()
-        }
-
-        # --- 5. PER-MODE UPDATE (The Core Logic) ---
-        # We define a function that updates ONE mean, then vmap it over K
-
-        def update_single_mode(
-            k_mean: jnp.ndarray, k_noise: jnp.ndarray, k_costs: jnp.ndarray, k_sigma: jnp.ndarray
-        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-            # k_mean: (H, 4)
-            # k_noise: (M, H, 4)
-            # k_costs: (M,)
-
-            # 1. Sort Indices (Local Elites)
-            sorted_idx = jnp.argsort(k_costs)
-            n_elites = int(self.M * self.elite_percentage)
-
-            # Safety check: ensure at least 1 elite
-            n_elites = max(n_elites, 1)
-            elite_idx = sorted_idx[:n_elites]
-
-            # 2. Gather Elite Data
-            elite_noise = k_noise[elite_idx]
-            elite_costs = k_costs[elite_idx]
-
-            # 3. Weights
-            min_cost = jnp.min(elite_costs)
-            weights = jnp.exp(-(elite_costs - min_cost) / self.temperature)
-
-            # Normalize weights (add epsilon for numerical stability)
-            weights = weights / (jnp.sum(weights) + 1e-10)
-
-            # 4. Weighted Update (Delta)
-            delta = jnp.sum(weights[:, None, None] * elite_noise, axis=0)
-
-            # 5. Covariance Update
-            diff = elite_noise - delta
-            weighted_var = jnp.sum(weights[:, None, None] * (diff**2), axis=0)
-
-            # Smoothing the sigma
-            alpha = self.alpha
-            new_sigma_sq = alpha * weighted_var + (1.0 - alpha) * (k_sigma**2)
-
-            # Clipping
-            min_variance = self.min_variance
-            new_sigma_sq = jnp.maximum(new_sigma_sq, min_variance)
-            new_k_sigma = jnp.sqrt(new_sigma_sq)
-
-            # Return updated mean, updated sigma, and the best cost of this mode
-            return k_mean + delta, new_k_sigma, min_cost
-
-        # Vectorize the update logic over the K dimension!
-        # This updates all means in parallel.
-        updated_means, updated_sigmas, cluster_best_costs = vmap(update_single_mode)(
-            current_means, noise, costs_grouped, noise_sigmas
-        )
-
-        # --- 6. WINNER SELECTION ---
-        # We need to pick one action to actually execute.
-        # We pick the mean that had the lowest cost elite.
-        best_mode_idx = jnp.argmin(cluster_best_costs)
+        # --- 3. Per-agent grouped elite update (ragged K) ---
+        new_means, new_sigmas, best_idx = [], [], []
+        costs_grouped, positions_grouped, mode_term_costs = [], [], []
+        for a in range(self.n_agents):
+            Ka, Ma = self.K[a], self.M[a]
+            costs_a = totals[:, a].reshape(Ka, Ma)  # (Ka, Ma)
+            pos_a = positions[:, :, a, :].transpose(1, 0, 2).reshape(Ka, Ma, self.N, 3)
+            terms_a = {name: v[:, a].reshape(Ka, Ma) for name, v in terms.items()}
+            # per-mode breakdown: each mode's best (lowest-total) sample -> (Ka,)
+            best_sample = jnp.argmin(costs_a, axis=1)
+            k_idx = jnp.arange(Ka)
+            mterm_a = {name: v[k_idx, best_sample] for name, v in terms_a.items()}
+            m, s, bi = self._update_modes(means[a], sigmas[a], noises[a], costs_a, Ka, Ma)
+            new_means.append(m)
+            new_sigmas.append(s)
+            best_idx.append(bi)
+            costs_grouped.append(costs_a)
+            positions_grouped.append(pos_a)
+            mode_term_costs.append(mterm_a)
 
         return (
-            updated_means,
-            updated_sigmas,
-            best_mode_idx,
+            new_means,
+            new_sigmas,
+            best_idx,
             costs_grouped,
             positions_grouped,
             mode_term_costs,
@@ -783,136 +901,111 @@ class AttitudeMPPIController(Controller):
         data: SimData,
         theta: jnp.ndarray,
         v_theta: jnp.ndarray,
-        reference: dict[str, jnp.ndarray],
         obstacles: jnp.ndarray,
         gate_frame_obstacles: jnp.ndarray,
     ) -> dict[str, jnp.ndarray]:
-        """Compute the per-term cost for a given state (MPCC contour/lag/progress formulation).
+        """Compute the per-term cost for ALL agents (MPCC contour/lag/progress formulation).
 
-        Returns a dict mapping term name -> cost of shape (n_rollouts,). The optimizer
-        sums these; keeping them separate lets us accumulate each term over the horizon
-        and log the per-mode cost breakdown for cost engineering.
+        Returns a dict term_name -> cost of shape (n_worlds, n_agents). The optimizer sums these;
+        keeping them separate lets us accumulate each term over the horizon and log the per-mode
+        breakdown. The pairwise drone-drone collision is symmetric and self-masked, so it is 0
+        when n_agents==1 (the cost then reduces exactly to the single-agent formulation).
 
-        theta: (n_rollouts,) current progress (arc length) of each rollout.
-        v_theta: (n_rollouts,) progress speed of each rollout (for the progress reward).
+        theta / v_theta: (n_worlds, n_agents) progress (arc length) and progress speed per agent.
         """
-        pos = data.states.pos[:, 0, :]  # Shape: (n_rollouts, 3)
-        ang_vel = data.states.ang_vel[:, 0, :]  # Shape: (n_rollouts, 3)
-        ang_acc = data.states_deriv.ang_vel[:, 0, :]  # Shape: (n_rollouts, 3)
-        cmd = data.controls.attitude.staged_cmd[:, 0, :]  # Shape: (n_rollouts, 4)
+        pos = data.states.pos  # (W, A, 3)
+        vel = data.states.vel  # (W, A, 3) — real heading for the anisotropic keep-out
+        ang_vel = data.states.ang_vel  # (W, A, 3)
+        ang_acc = data.states_deriv.ang_vel  # (W, A, 3)
+        cmd = data.controls.attitude.staged_cmd  # (W, A, 4)
 
-        ## 1. MPCC tracking cost — contour + lag + progress (replaces pos/vel tracking)
-        # Reference position and unit path tangent at each rollout's own theta (LUT lookup).
-        ref_pos, tangent = vmap(self._ref_at_theta)(theta)  # (n_rollouts, 3) each
-        err = pos - ref_pos  # (n_rollouts, 3)
-        # Lag error: signed component of err ALONG the path tangent (ahead +, behind -).
-        e_lag = jnp.sum(tangent * err, axis=-1)  # (n_rollouts,)
-        # Contour error: component PERPENDICULAR to the path (off-track distance).
-        e_con_vec = err - e_lag[:, None] * tangent  # (n_rollouts, 3)
-        lag_cost = e_lag**2 * self.w_lag
-        contour_cost = jnp.sum(e_con_vec**2, axis=-1) * self.w_contour
-        # Extra altitude penalty toward the reference height (kept from the old cost).
-        z_cost = jnp.abs(pos[..., 2] - ref_pos[..., 2]) * self.w_z
-        # Progress reward: advancing theta lowers cost (this is what removes the t_total ceiling).
-        progress_cost = -self.w_progress * v_theta
-        ang_vel_error = jnp.linalg.norm(ang_vel, axis=-1)
-        ang_vel_cost = ang_vel_error**2 * self.w_ang_vel
-        ang_acc_error = jnp.linalg.norm(ang_acc, axis=-1)
-        ang_acc_cost = ang_acc_error**2 * self.w_ang_acc
-
-        ## 2. Control Cost (Efficiency + Stability)
-        # Penalize high tilt (roll/pitch)
-        tilt_cost = (
-            jnp.linalg.norm(cmd[:, :2], axis=-1) ** 2 * self.w_tilt
-        )  # changedPractical: was 5.0; loosened to allow aggressive roll/pitch
-        # Penalize thrust deviations from gravity
-        thrust_cost = (
-            cmd[:, 3] - HOVER_THRUST
-        ) ** 2 * self.w_thrust  # changedPractical: was 0.0; regularise toward hover thrust
-        # Penalize yaw deviations
-        yaw_cost = (
-            cmd[:, 2] - 0 #des_yaw should be 0
-        ) ** 2 * self.w_yaw  # changedPractical: was 0.0; added to stabilise yaw oscillation
-
-        binary_obstacle_cost = True
-        ## 3. Obstacle Cost (Safety)
-        save_dist_obst = (self.initial_info["experiment"]["env"]["obstacle_radius"]
-            + self.initial_info["experiment"]["env"]["drone_radius"])
-        obs_diff = jnp.linalg.norm(pos[..., None, :2] - obstacles[None, :, :2], axis=-1)
-
-        if binary_obstacle_cost:
-            obstacle_hits = jnp.where(obs_diff < save_dist_obst,1,0,)
-            obstacle_cost = self.w_obstacle * jnp.sum(obstacle_hits, axis=-1)
-        else:
-            obstacle_cost = self.w_obstacle_exp * jnp.sum(
-                jnp.exp(-((obs_diff / save_dist_obst) ** 2)), axis=1) 
-
-        ## 4. Gate Obstacle Cost (Safety)
-        save_dist_gate_obst = (self.initial_info["experiment"]["env"]["gate_frame_radius"]
-            + self.initial_info["experiment"]["env"]["drone_radius"])
-        gate_obs_diff = jnp.linalg.norm(
-            pos[..., None, :2] - gate_frame_obstacles[None, :, :2], axis=-1
+        save_dist_obst = (
+            self.initial_info["experiment"]["env"]["obstacle_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"]
         )
-
-        if binary_obstacle_cost:
-            gate_obstacle_hits = jnp.where(gate_obs_diff< save_dist_gate_obst,1,0,)
-            gate_obstacle_cost = self.w_obstacle * jnp.sum(gate_obstacle_hits, axis=-1)
-        else:
-            gate_obstacle_cost = self.w_obstacle_exp * jnp.sum(
-                jnp.exp(-((gate_obs_diff / save_dist_gate_obst) ** 2)), axis=1) 
-
-        ## 5. Floor penalty — prevents rollouts from sinking into the ground
-        # changedPractical: penalise rollout states below z=0.1m, deters early liftoff instability
-        floor_cost = jnp.where(
-            pos[..., 2] < self.floor_z, (self.floor_z - pos[..., 2]) ** 2 * self.w_floor, 0.0
+        save_dist_gate_obst = (
+            self.initial_info["experiment"]["env"]["gate_frame_radius"]
+            + self.initial_info["experiment"]["env"]["drone_radius"]
         )
+        # Per-agent MPCC + obstacle terms via the pure single_drone_terms(). The loop unrolls over
+        # the small agent axis at trace time; each agent uses its own spline LUT.
+        per_agent, tangents = [], []
+        for a in range(self.n_agents):
+            ref_pos, tangent = vmap(self._ref_at_theta, in_axes=(0, None, None, None))(
+                theta[:, a], self._theta_grid[a], self._ref_pos_lut[a], self._ref_tan_lut[a]
+            )
+            tangents.append(tangent)
+            per_agent.append(
+                single_drone_terms(
+                    pos[:, a], ang_vel[:, a], ang_acc[:, a], cmd[:, a], ref_pos, tangent,
+                    v_theta[:, a], obstacles, gate_frame_obstacles,
+                    save_dist_obst, save_dist_gate_obst, self._weights,
+                )
+            )
+        terms = {k: jnp.stack([pa[k] for pa in per_agent], axis=1) for k in per_agent[0]}  # (W, A)
+        tangent = jnp.stack(tangents, axis=1)  # (W, A, 3) — per-agent path tangent
 
-        # Per-term costs, each shape (n_rollouts,). The optimizer/logger sum these.
-        # changedPractical: MPCC terms (lag/contour/progress) replace the old pos/vel tracking.
-        return {
-            "lag": lag_cost,
-            "contour": contour_cost,
-            "z": z_cost,
-            "progress": progress_cost,
-            "ang_vel": ang_vel_cost,
-            "ang_acc": ang_acc_cost,
-            "tilt": tilt_cost,
-            "thrust": thrust_cost,
-            "yaw": yaw_cost,
-            "obstacle": obstacle_cost,
-            "gate_obstacle": gate_obstacle_cost,
-            "floor": floor_cost,
-        }
+        # --- Symmetric pairwise drone-drone collision. Self-masked -> 0 for n_agents==1. ---
+        # delta[w, a, b] = pos_a - pos_b. Orient the keep-out by the OTHER drone b's real velocity
+        # heading (anisotropic overtake bubble); fall back to isotropic when b is ~stationary.
+        safe = self.initial_info["experiment"]["env"]["drone_radius"] * 2.5
+        delta = pos[:, :, None, :] - pos[:, None, :, :]  # (W, A, A, 3)
+        d_iso = jnp.linalg.norm(delta, axis=-1) / safe  # (W, A, A)
+        eye = jnp.eye(self.n_agents)
+        if self.use_anisotropic_opp:
+            spd_b = jnp.linalg.norm(vel, axis=-1)  # (W, A) speed of each drone
+            hb = vel / (spd_b[..., None] + 1e-6)  # (W, A, 3) unit heading of b
+            hb = hb[:, None, :, :]  # (W, 1, A, 3) broadcast over acting-drone axis a
+            d_par = jnp.sum(delta * hb, axis=-1)  # (W, A, A) along b's heading
+            d_perp = jnp.linalg.norm(delta - d_par[..., None] * hb, axis=-1)  # (W, A, A)
+            d_aniso = jnp.sqrt((d_par / self.opp_axial) ** 2 + (d_perp / self.opp_lateral) ** 2)
+            moving_b = (spd_b > 0.2)[:, None, :]  # (W, 1, A)
+            d = jnp.where(moving_b, d_aniso, d_iso)
+        else:
+            d = d_iso
+        coll = jnp.exp(-(d**2)) * (1.0 - eye)  # (W, A, A), self-pairs masked
+        terms["opp_drone"] = self.w_opp_drone_exp * coll.sum(-1)  # (W, A)
+
+        # --- behind-aware contour relaxation (opt-in) ---
+        # If another drone b is ahead of a along a's path tangent AND within behind_radius, scale
+        # down a's contour cost so it may leave the racing line to overtake.
+        if self.use_behind_contour:
+            ahead = jnp.sum(tangent[:, :, None, :] * (-delta), axis=-1)  # (W, A, A): b ahead of a
+            dist = jnp.linalg.norm(delta, axis=-1)  # (W, A, A)
+            behind = ((ahead > 0.0) & (dist < self.behind_radius) & (eye == 0.0)).any(axis=-1)
+            terms["contour"] = terms["contour"] * jnp.where(
+                behind, self.contour_behind_scale, 1.0
+            )
+        return terms
 
     @partial(jax.jit, static_argnames=["self"])
     def apply_input(
         self,
         carry: tuple[SimData, jnp.ndarray],
-        info: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray],
+        info: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
     ) -> tuple[tuple[SimData, jnp.ndarray], jnp.ndarray]:
-        """Roll out the sim for one step and advance the MPCC progress theta.
+        """Roll out the sim for one step (all agents) and advance each agent's MPCC progress theta.
 
         Args:
-            carry: Tuple of (sim data, theta) where theta is (n_rollouts,) progress (arc length).
-            info: Tuple of (cmd5, ref, obstacles, gate_frame_obstacles). cmd5 is (n_rollouts, 5):
-                the first 4 channels are the attitude/thrust command sent to the sim; the 5th is
+            carry: (sim data, theta) where theta is (n_worlds, n_agents) progress (arc length).
+            info: (cmd5, obstacles, gate_frame_obstacles). cmd5 is (n_worlds, n_agents, 5): the
+                first 4 channels are the attitude/thrust command sent to the sim; the 5th is
                 v_theta, the progress speed used to integrate theta.
         """
         data, theta = carry
-        cmd, ref, obstacles, gate_frame_obstacles = info
-        v_theta = cmd[:, 4]  # (n_rollouts,)
-        cmd4 = cmd[:, :4]  # only the real attitude/thrust channels go to the sim
-        # Integrate progress forward by one planning step (clamped to the path ends).
-        theta_next = jnp.clip(theta + v_theta * self.dt, 0.0, self._s_total)
-        # Step sim with the 4 real channels
+        cmd, obstacles, gate_frame_obstacles = info
+        v_theta = cmd[..., 4]  # (W, A)
+        cmd4 = cmd[..., :4]  # (W, A, 4) real attitude/thrust channels
+        # Integrate progress forward one planning step (clamped per agent to its own path end).
+        theta_next = jnp.clip(theta + v_theta * self.dt, 0.0, self._s_total[None, :])
         data = data.replace(
             controls=data.controls.replace(
-                attitude=data.controls.attitude.replace(staged_cmd=cmd4[:, None, :])
+                attitude=data.controls.attitude.replace(staged_cmd=cmd4)
             )
         )
         next_data = self.step_fn(data, self.sim.freq // self.sim.control_freq)
         cost_terms = self.compute_cost(
-            next_data, theta_next, v_theta, ref, obstacles, gate_frame_obstacles
+            next_data, theta_next, v_theta, obstacles, gate_frame_obstacles
         )
         return (next_data, theta_next), (cost_terms, next_data.states.pos)
 
@@ -921,11 +1014,12 @@ class AttitudeMPPIController(Controller):
         self,
         obs: dict,
         theta0: jnp.ndarray,
-        infos: tuple[jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray],
+        infos: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
     ) -> jnp.ndarray:
-        """Rolls out the sim for scan.
+        """Rolls out the sim (all agents) for scan.
 
-        theta0: (n_rollouts,) starting progress (arc length) shared by all rollouts.
+        theta0: (n_worlds, n_agents) starting progress (arc length); each agent's worlds all start
+        at that agent's committed progress. obs values are (n_agents, ...) broadcast over worlds.
         """
         data = self.sim.data
         pos = data.states.pos.at[...].set(obs["pos"])
@@ -938,7 +1032,7 @@ class AttitudeMPPIController(Controller):
                 pos=pos, quat=quat, vel=vel, ang_vel=ang_vel, rotor_vel=rotor_vel
             )
         )
-        controls_flat, refs, obstacles, gate_frame_obstacles = infos
+        controls_flat, obstacles, gate_frame_obstacles = infos
         # scan iterates over axis 0 (N time steps); tile obstacles so each step gets a slice
         obstacles_tiled = jnp.broadcast_to(obstacles[None], (self.N,) + obstacles.shape)
         gate_frame_obstacles_tiled = jnp.broadcast_to(
@@ -949,28 +1043,28 @@ class AttitudeMPPIController(Controller):
         _, (cost_terms, positions) = scan(
             self.apply_input,
             (data, theta0),
-            (controls_flat, refs, obstacles_tiled, gate_frame_obstacles_tiled),
+            (controls_flat, obstacles_tiled, gate_frame_obstacles_tiled),
         )
-        # cost_terms: dict of (N, n_rollouts). Sum each term over the horizon -> (n_rollouts,).
+        # cost_terms: dict of (N, W, A). Sum each term over the horizon -> (W, A).
         terms_summed = {k: jnp.sum(v, axis=0) for k, v in cost_terms.items()}
-        total = sum(terms_summed.values())  # (n_rollouts,)
+        total = sum(terms_summed.values())  # (W, A)
         return total, positions, terms_summed
 
     # changedPractical
 
     def _draw_reference(self, sim: Sim):
         """Draw the reference spline, current setpoint, and waypoints."""
-        # changedPractical: setpoint is now the reference at the committed progress theta
-        # (arc length), not at wall-clock time.
+        # changedPractical: setpoint is now the reference at the ego's committed progress theta
+        # (arc length), not at wall-clock time. Per-agent LUTs/theta are lists; index [0] = ego.
         idx = min(
-            int(np.searchsorted(self._theta_grid_np, self._theta)),
-            len(self._ref_pos_np) - 1,
+            int(np.searchsorted(self._theta_grid_np[0], self._theta[0])),
+            len(self._ref_pos_np[0]) - 1,
         )
-        setpoint = self._ref_pos_np[idx].reshape(1, -1)
+        setpoint = self._ref_pos_np[0][idx].reshape(1, -1)
         draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
-        trajectory = self._planner.get_trajectory(100)
+        trajectory = self._planner[0].get_trajectory(100)
         draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
-        draw_points(sim, self._planner.waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
+        draw_points(sim, self._planner[0].waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)
 
     def _draw_mppi_rollouts(self, sim: Sim):
         """Draw the top MPPI rollout trajectories per cluster, best in white."""
@@ -986,12 +1080,12 @@ class AttitudeMPPIController(Controller):
             (0.0, 0.5, 1.0),  # sky blue
         ]
 
-        positions = np.asarray(self.positions)  # (K, M, N, 3)
+        positions = np.asarray(self.positions)  # (K, M, N, 3) — ego (agent 0)
         costs = np.asarray(self.costs)  # (K, M)
         best_k = int(self.best_mode_idx)
         n_viz = 3
 
-        for k in range(self.K):
+        for k in range(self.K[0]):
             rgb = _cluster_colors[k % len(_cluster_colors)]
             sorted_idx = np.argsort(costs[k])[:n_viz]
             for rank, m in enumerate(sorted_idx):
