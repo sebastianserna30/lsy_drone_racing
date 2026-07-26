@@ -1,11 +1,16 @@
-# Deploy Multilevel
+# deploy single — tuned MPPI++ for deployment on real HW
+#
+# Single-drone test config. Small noise added for runnign on deployment
 
-
-[[controller]]
-#file = "attitude_controller_multi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
-file = "trajectory_mppi_multi.py"
+[controller]
+file = "trajectory_mppi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+#file = "attitude_controller_v1.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
 type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
+
+[controller.attitude] # AttitudeController parameters
+t_total = 7.8
+
 
 [controller.mppi] # MPPI parameters
 N = 30
@@ -42,8 +47,6 @@ thrust = 1.0 # was 0.0; regularise toward hover thrust
 yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
 obstacle = 10000.0 # per-obstacle collision penalty
 obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
-opp_drone = 10000.0 # per collision other drone penalty
-opp_drone_exp = 5 # weight of smoth collision cost using exponent was 13
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 
@@ -53,70 +56,14 @@ contour = 40.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
 lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 0.01      #0.1 ~10 seconds 0.4 ~6 seconds
-
-[controller.attitude] # AttitudeController parameters
-t_total = 7.8
-
-[[controller]]  # Add the controller files for each drone
-file = "trajectory_mppi_multi.py"
-type = "mppi" # mellinger, mppi
-ctrl_freq = 50 # Hz
-
-[controller.mppi] # MPPI parameters
-N = 30
-T = 0.6 # seconds, control horizon duration. Note that dt = T / horizon
-n_samples = 100000
-noise_sigma = 0.01 # Initial noise std
-temperature = 0.25
-elite_percentage = 0.01 # Top percent for averaging in [0,1]
-beta = 0.6 # Noise smoothing in [0,1] (no smoothing to max smoothing)
-alpha = 0.1 # weighted variance update weight
-min_variance = 0.02
-K = 5 # means
-action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
-# changedPractical: MPCC progress-variable (theta) reparameterization. The reference is keyed on
-# arc length; each rollout carries theta and advances it by a sampled v_theta (5th control channel).
-v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
-v_theta_max = 6.0    # cap on progress speed
-v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
-
-[controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
-curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
-clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
-lut_samples = 1500
-
-[controller.mppi.cost] # MPPI cost-function weights
-pos = 40.0 # position tracking
-z = 80.0 # extra penalty for altitude error
-vel = 1.0 # velocity tracking (original 1.0)
-ang_vel = 0.0 # angular-velocity penalty (off)
-ang_acc = 0.0 # angular-acceleration penalty (off)
-tilt = 1.0 # was 5.0; loosened to allow aggressive roll/pitch
-thrust = 1.0 # was 0.0; regularise toward hover thrust
-yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
-obstacle = 10000.0 # per-obstacle collision penalty
-obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
-opp_drone = 10000.0 # per collision other drone penalty
-opp_drone_exp = 5 # weight of smoth collision cost using exponent was 13
-floor = 500.0 # penalty weight for states below floor_z
-floor_z = 0.1 # height (m) below which the floor penalty applies
-
-
-# contour = off-path (perpendicular) error; high to thread gate centres cleanly
-contour = 20.0
-# lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
-lag = 400.0
-# progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 1.0
+progress = 0.2      #0.1 ~10 seconds 0.4 ~6 seconds
 
 [deploy]
 ### Settings only relevant for deployment
 # Whether to check if gate and obstacle positions observed by vicon are within the limits defined down below.
 check_race_track = true
 # Whether to check if the drone start position is within the limits specified down below.
-check_drone_start_pos = false
+check_drone_start_pos = true
 # Lets you practice your controller without putting up gates & obstacles, assumes nominal positions given below.
 real_track_objects = true
 return_height_min = 1.8
@@ -124,16 +71,9 @@ return_height_max = 2.2
 
 
 [[deploy.drones]]
-radio= 0
 id = 20
 channel = 100
-drone_model = "cf21B_500"                        # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
-
-[[deploy.drones]]
-radio = 1
-id = 52
-channel = 80
-drone_model = "cf21B_500"                        # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
+drone_model = "cf21B_500"    
 
 
 [sim]
@@ -155,20 +95,15 @@ elevation = -25.0
 lookat = [0.0, 0.0, 0.0]
 
 [env]
-id = "MultiDroneRacing-v0"
+id = "DroneRacing-v0"   # "DroneRacing-v0" for single races, "MultiDroneRacing-v0" for multi-drone races. Each environment also implements a vector-environment for faster training
 seed = -1               # -1 for random seeds or a non-zero integer for reproducibility
-[[env.kwargs]]
 freq = 50               # Frequency of the environment's step function, in Hz
 sensor_range = 0.7      # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.
 control_mode = "attitude"  # Control mode of the environment. Can be either "state" or "attitude"
-[[env.kwargs]]
-freq = 50
-sensor_range = 0.7
-control_mode = "attitude"
 
 [env.track]
-# Full track radomization. When activated, the position (x & y) and orientation (yaw) 
-# of the below given gates, obstacles and drones is randomized inside the safety limits. 
+# Full track radomization. When activated, the position (x & y) and orientation (yaw)
+# of the below given gates, obstacles and drones is randomized inside the safety limits.
 # Note: The order and therefore also height is not randomized!
 randomize = false
 
@@ -199,13 +134,8 @@ pos = [-1.5, -0.25, 1.55]
 pos = [-0.5, -0.75, 1.55]
 
 [[env.track.drones]]
-pos = [-1.5, 0.85, 0.11]
-rpy = [0, 0, 0]
-vel = [0, 0, 0]
-ang_vel = [0, 0, 0]
-[[env.track.drones]]
-pos = [-1.9, 0.90, 0.01]
-rpy = [0, 0, 0]
+pos = [-1.5, 0.75, 0.01]
+rpy = [0.0, 0.0, 0.0]
 vel = [0, 0, 0]
 ang_vel = [0, 0, 0]
 
@@ -228,41 +158,13 @@ maxval = [0.1, 0.1, 0.1]
 fn = "uniform"
 [env.randomizations.drone_pos.kwargs]
 minval = [-0.1, -0.1, 0.0]
-maxval = [0.1, 0.1, 0.2]
+maxval = [0.1, 0.1, 0.02]
 
 [env.randomizations.drone_rpy]
 fn = "uniform"
 [env.randomizations.drone_rpy.kwargs]
 minval = [-0.1, -0.1, -0.1]
 maxval = [0.1, 0.1, 0.1]
-
-#Everything for MPPI
-[drone]
-id = 52
-channel = 80
-model = "cf21B_500"
-pos_landing = [1.5, 1.5, 0.0] # landing position of the drone in global frame
-pos_update_freq = 10 # Hz, frequency for onboard estimator updates
-
-[experiment]
-pos_trajectory = [0.0, 0.25, 1.05] # position in global frame around which the trajectory is centered
-trajectory = "lissajous" # type of trajectory, e.g., figure8, ellipse, figure8_bent, melon, ...
-plane = "xy" # plane in which the trajectoy lies, e.g., xy, xz. Ignored for 3d trajectories
-scaling = [1.6, 1.6, 0.0] # maximum size in m of the trajectory, [2.0, 0.5, 1.0], [2.0, 1.0, 0.5]
-time = 20 # time per loop of the trajectory
-n_runs = 1 # number of runs
-yaw_mode = "constant" # yaw behavior: constant, velocity, direction
-yaw_setting = 0 # yaw parameter, e.g., for constant: angle in rad, for velocity: rate in rot/T
-soft_start = true # enable/disable soft start
-[experiment.env]
-drone_radius = 0.12  # 86mm + safety margin
-obstacle_radius = 0.055  # 110mm diameter pipes
-gate_frame_radius = 0.1 #ideal 0.08 but with buffer
-obstacle_length = 1.0
-
-[plot]
-show = false # enable/disable showing plots
-save = true # enable/disable saving plots
 
 [env.randomizations.drone_mass]
 fn = "uniform"
@@ -279,8 +181,8 @@ maxval = [0.000001, 0.000001, 0.000001]
 [env.randomizations.gate_pos]
 fn = "uniform"
 [env.randomizations.gate_pos.kwargs]
-minval = [-0.05, -0.05, -0.1]
-maxval = [0.05, 0.05, 0.1]
+minval = [-0.10, -0.10, -0.1]
+maxval = [0.10, 0.10, 0.1]
 
 [env.randomizations.gate_rpy]
 fn = "uniform"
@@ -291,5 +193,31 @@ maxval = [0.05, 0.1, 0.2]
 [env.randomizations.obstacle_pos]
 fn = "uniform"
 [env.randomizations.obstacle_pos.kwargs]
-minval = [-0.05, -0.05, -0.05]
-maxval = [0.05, 0.05, 0.05]
+minval = [-0.10, -0.10, -0.05]
+maxval = [0.10, 0.10, 0.05]
+
+#Everything for MPPI
+[drone]
+model = "cf21B_500"
+pos_landing = [1.5, 1.5, 0.0] # landing position of the drone in global frame
+pos_update_freq = 10 # Hz, frequency for onboard estimator updates
+
+[experiment]
+pos_trajectory = [0.0, 0.25, 1.05] # position in global frame around which the trajectory is centered
+trajectory = "lissajous" # type of trajectory, e.g., figure8, ellipse, figure8_bent, melon, ...
+plane = "xy" # plane in which the trajectoy lies, e.g., xy, xz. Ignored for 3d trajectories
+scaling = [1.6, 1.6, 0.0] # maximum size in m of the trajectory, [2.0, 0.5, 1.0], [2.0, 1.0, 0.5]
+time = 20 # time per loop of the trajectory
+n_runs = 1 # number of runs
+yaw_mode = "constant" # yaw behavior: constant, velocity, direction
+yaw_setting = 0 # yaw parameter, e.g., for constant: angle in rad, for velocity: rate in rot/T
+soft_start = true # enable/disable soft start
+[experiment.env]
+drone_radius = 0.14  # 86mm + safety margin
+obstacle_radius = 0.065  # 110mm diameter pipes added buffer
+gate_frame_radius = 0.12 #ideal 0.08 but with buffer
+obstacle_length = 1.0
+
+[plot]
+show = false # enable/disable showing plots
+save = true # enable/disable saving plots
