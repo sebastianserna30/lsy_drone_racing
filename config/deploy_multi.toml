@@ -49,8 +49,8 @@ opp_drone = 10000.0 # per collision other drone penalty
 opp_drone_exp = 5 # weight of smoth collision cost using exponent was 13
 
 use_anisotropic_opp = true
-opp_axial = 0.25
-opp_lateral = 0.10
+opp_axial = 0.30
+opp_lateral = 0.12
 
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
@@ -113,8 +113,8 @@ opp_drone = 10000.0 # per collision other drone penalty
 opp_drone_exp = 5 # weight of smoth collision cost using exponent was 13
 
 use_anisotropic_opp = true
-opp_axial = 0.25
-opp_lateral = 0.10
+opp_axial = 0.30
+opp_lateral = 0.12
 
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies

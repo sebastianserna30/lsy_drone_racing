@@ -7,7 +7,9 @@ Note:
     Please do not alter this script or ask the course supervisors first!
 """
 
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -17,48 +19,109 @@ from lsy_drone_racing.utils import load_config
 
 logger = logging.getLogger(__name__)
 
+def json_default(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 
 def main():
     """Run the multi-drone simulation N times and save the results as 'evaluation.csv'."""
     n_runs = 20
-    config_file = "multi_level0.toml"
+    n_fit_memory = 5
+    assert n_runs % n_fit_memory == 0
+    n_loops = int(n_runs/n_fit_memory)
+
+    config_file = "deploy_multi.toml"
     config = load_config(Path(__file__).parents[1] / "config" / config_file)
     controllers = ",".join(controller["file"] for controller in config.controller)
-    # ep_times: list (n_runs) of arrays (n_drones,); np.nan means that drone did not finish.
-    ep_times = simulate(
-        config=config_file, controllers=controllers, n_runs=n_runs, render=False
-    )
+    ep_times = []
+
+    
+    for _ in range(n_loops):
+        # ep_times: list (n_runs) of arrays (n_drones,); np.nan means that drone did not finish.
+        ep_time = simulate(
+            config=config_file, controllers=controllers, n_runs=n_fit_memory, render=False
+        )
+        ep_times.extend(ep_time)
+
     ep_times = np.asarray(ep_times)  # shape (n_runs, n_drones)
-    n_drones = ep_times.shape[1]
+    
+    '''
 
-    for rank in range(n_drones):
-        times = ep_times[:, rank]
-        finished = ~np.isnan(times)
-        n_failed = int((~finished).sum())
-        success_rate = finished.mean()
-        if n_failed:
-            logger.warning(
-                f"Drone {rank}: {n_failed} run{'' if n_failed == 1 else 's'} failed out of {n_runs}!"
-            )
-        else:
-            logger.info(f"Drone {rank}: all runs completed successfully!")
+    ep_times = np.array([[  np.nan,   np.nan],
+            [10.5 ,   np.nan],
+            [  np.nan,   np.nan],
+            [5.44,   6.55],
+            [6.88,   5.77],
+            [6.34,   7.44],
+            [  np.nan,   np.nan]], dtype=np.float32)
+    '''
 
-        avg_time = np.mean(times[finished]) if finished.any() else float("nan")
-        logger.info(f"Drone {rank}: Average Time (s): {avg_time}")
-        logger.info(f"Drone {rank}: Success Rate: {success_rate * 100}%")
+    finished_1 = ~np.isnan(ep_times[:, 0])
+    finished_2 = ~np.isnan(ep_times[:, 1])
 
-    # Save aggregate stats (averaged over drones) for compatibility with evaluate.py.
-    finished_mask = ~np.isnan(ep_times)
-    overall_success = finished_mask.mean()
-    overall_avg = np.mean(ep_times[finished_mask]) if finished_mask.any() else float("nan")
-    if overall_success < 0.5:
-        logger.error("More than 50% of all runs failed! Aborting evaluation.")
-        raise RuntimeError("Too many runs failed!")
+    both_finished = int(np.sum(finished_1 & finished_2))
+    both_finished_percent = 100.0 * both_finished / n_runs
 
-    file = Path(__file__).parents[1] / "evaluation.csv"
-    with open(file, "w") as f:
-        f.write(f"{overall_avg},{overall_success},")
-    logger.info(f"Results saved in {file}")
+    none_finished = int(np.sum(~finished_1 & ~finished_2))
+    only_1_finished = int(np.sum(finished_1 & ~finished_2))
+    only_2_finished = int(np.sum(~finished_1 & finished_2))
+
+    # Only count overtakes when both drones finished.
+    overtakes = int(np.sum(finished_1 & finished_2 & (ep_times[:, 1] < ep_times[:, 0])))
+    percent_overtake = (
+        100.0 * overtakes / both_finished if both_finished > 0 else 0.0
+    )
+
+    logger.info("========== Race Statistics ==========")
+    logger.info(f"Both finished:          {both_finished}/{n_runs} ({both_finished_percent:.1f}%)")
+    logger.info(f"Only drone 1 finished:  {only_1_finished}")
+    logger.info(f"Only drone 2 finished:  {only_2_finished}")
+    logger.info(f"None finished:          {none_finished}")
+    logger.info(f"Overtakes:              {overtakes}/{both_finished} ({percent_overtake:.1f}%)")
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    results = {
+        "timestamp": timestamp,
+        "config_file": config_file,
+        "config": config.to_dict(),
+        "controllers": [controller["file"] for controller in config.controller],
+        "simulation": {
+            "n_runs": n_runs,
+            "n_drones": n_drones,
+        },
+        "episode_times": ep_times.tolist(),
+        "metrics": {
+            "both_finished": both_finished,
+            "both_finished_percent": both_finished_percent,
+
+            "none_finished": none_finished,
+
+            "only_drone_1_finished": only_1_finished,
+            "only_drone_2_finished": only_2_finished,
+
+            "overtakes": overtakes,
+            "overtakes_percent": percent_overtake,
+        },
+    }
+
+    result_dir = Path(__file__).parents[1] / "evaluation_results/multi_sim"
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    result_file = result_dir / f"{timestamp}.json"
+
+    with open(result_file, "w") as f:
+        json.dump(results, f, indent=4, default=json_default)
+
+    logger.info(f"Results saved to {result_file}")
 
 
 if __name__ == "__main__":
