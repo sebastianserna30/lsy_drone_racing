@@ -261,6 +261,7 @@ class AttitudeMPPIController(Controller):
         # False forces the next anchor_theta call to bootstrap with a global search.
         self._opp_anchored = [False] * self.n_agents
         self._opp_pred_np = None  # kinematic opponent predictions (N, A-1, 3) for rendering
+        self._opp_inflate_np = np.ones(max(self.n_agents - 1, 1), dtype=np.float32)
         self._last_gates_pos = None
         self._last_gates_quat = None
         # One planner per agent: same gates, but a per-agent start and optional per-agent timing,
@@ -369,6 +370,7 @@ class AttitudeMPPIController(Controller):
             pos_obs, quat_obs, vel_obs, angv_obs, opp_inflate = self._tracker.update(
                 pos_obs, quat_obs, vel_obs, angv_obs
             )
+            self._opp_inflate_np = opp_inflate  # (A-1,), kept on the host for rendering
         # Opponent rotor state is unobservable, so reuse the ego thrust filter as a proxy.
         rotor_obs = np.broadcast_to(np.asarray(self.thrust), (self.n_sim_agents, 4))
         obs_state = {
@@ -500,8 +502,18 @@ class AttitudeMPPIController(Controller):
         )
 
         if self._logger.active:
+            # The opponent trajectories the ego was actually scored against this step, (N, P, 3):
+            # the zero-noise mode representatives in "mppi" mode, the kinematic prediction
+            # otherwise. Logged so prediction error can be measured against the true positions.
+            opp_pred_log = self._opp_pred_np
+            if A > 1 and self.opponent_model == "mppi":
+                reps = [
+                    np.asarray(self.all_positions[a][:, 0]) for a in range(1, self.n_sim_agents)
+                ]
+                opp_pred_log = np.concatenate(reps, axis=0).transpose(1, 0, 2)  # (N, P, 3)
             self._logger.log_step(
-                self._t, obs, action, self.mode_term_costs, self.costs, self.best_mode_idx
+                self._t, obs, action, self.mode_term_costs, self.costs, self.best_mode_idx,
+                opp_pred_log,
             )
 
         return action
@@ -562,5 +574,14 @@ class AttitudeMPPIController(Controller):
             for a in range(1, self.n_sim_agents):
                 diagnostics.draw_opponent_rollouts(
                     sim, self.all_positions[a], self.all_costs[a]
+                )
+            # The keep-out the ego is actually penalised by, drawn on the tracked opponent.
+            if self.n_agents > 1:
+                diagnostics.draw_opponent_keepout(
+                    sim,
+                    self._tracker.held["pos"][1:],
+                    self._tracker.vel_filt[1:],
+                    self._opp_inflate_np,
+                    self._opp_cost,
                 )
         diagnostics.draw_obstacles(sim, self.obstacles, self.gate_frame_obstacles)

@@ -33,7 +33,8 @@ COST_TERMS = [
     ("cost_progress", "progress", "tab:green"),
     # legacy pos/vel tracking terms (kept so older logs still plot; skipped if absent)
     ("cost_pos", "pos", "tab:red"),
-    ("cost_z", "z", "tab:green"),
+    # distinct from progress: both were tab:green, which made the two indistinguishable
+    ("cost_z", "z", "gold"),
     ("cost_vel", "vel", "tab:orange"),
     ("cost_ang_vel", "ang_vel", "tab:olive"),
     ("cost_ang_acc", "ang_acc", "tab:brown"),

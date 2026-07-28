@@ -114,6 +114,21 @@ def _agents_view(v: NDArray) -> NDArray:
     return (v[None, :] if v.ndim == 1 else v).copy()
 
 
+def forward_speed(
+    paths: ReferencePaths, a: int, theta: float, vel: NDArray[np.floating], v_theta_max: float
+) -> float:
+    """Observed progress speed of agent `a`: its velocity projected on its path tangent.
+
+    This is the feedback the ``spline_progress`` predictor runs on. In ``mppi`` mode the
+    modelled opponent's pace is otherwise emergent from the ego's own racing cost, so nothing
+    ties it to how fast the opponent is really flying.
+    """
+    g, lut_t = paths.theta_grid_np[a], paths.tan_np[a]
+    tan = np.array([np.interp(theta, g, lut_t[:, i]) for i in range(3)])
+    tan /= max(np.linalg.norm(tan), 1e-9)
+    return float(np.clip(np.dot(vel, tan), 0.0, v_theta_max))
+
+
 @dataclass(frozen=True)
 class PredictorParams:
     """Parameters of the kinematic opponent predictors."""
