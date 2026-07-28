@@ -353,12 +353,16 @@ class AttitudeMPPIController(Controller):
 
         self.opp_traj = np.array(opp_traj)
 
+        opp_vel = np.diff(opp_traj, axis=0) / self.dt
+        opp_vel = np.vstack((opp_vel, opp_vel[-1]))
+
         refs = {
             "pos": jnp.array(des_pos, device=self.sim.device),
             "vel": jnp.array(des_vel, device=self.sim.device),
             "acc": jnp.array(des_acc, device=self.sim.device),
             "yaw": jnp.array(des_yaw, device=self.sim.device),
             "opp_pos": jnp.array(opp_traj, device=self.sim.device),
+            "opp_vel": jnp.array(opp_vel, device=self.sim.device),
         }
 
         # 1. Update Step

@@ -304,6 +304,7 @@ class SplinePlanner:
         exit_offset_next = 0.10
         dip_degree = 120
         dip_centre_shift = 0.2
+        dip_allowed = False  #prohibits dip at gate 3
 
         takeoff_vec_length = 0.4
         takeoff_z_off = 0.25
@@ -352,7 +353,7 @@ class SplinePlanner:
                 vec_to_next_norm = vec_prev_norm
 
             theta = np.degrees(np.arccos(np.clip(np.dot(normal, vec_to_next_norm), -1.0, 1.0)))
-            is_dip = theta >= dip_degree
+            is_dip = dip_allowed and theta >= dip_degree
 
             # Entry — 0.23 m in front of gate along its normal, approach side
             gate_in_dir = entry_offset_prev * vec_prev_norm
@@ -378,6 +379,14 @@ class SplinePlanner:
                     add_normal_out = exit_offset - length_normal_out  # normal: exit far side
                     exit_ = centre + gate_out_dir + add_normal_out * normal
                 waypoints.append(exit_)
+
+            if not dip_allowed and i == 2:
+                #fly around 3. gate
+
+                side_axis = R.from_quat(quat).apply([0.0, 1.0, 0.0])
+
+                fly_araound = pos.copy() + 0.6 * side_axis
+                waypoints.append(fly_araound)
 
         return np.array(waypoints)
 

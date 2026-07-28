@@ -24,6 +24,7 @@ action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
 v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
 v_theta_max = 6.0    # cap on progress speed
 v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
+render_traj = false
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
 t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
@@ -42,8 +43,15 @@ thrust = 1.0 # was 0.0; regularise toward hover thrust
 yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
 obstacle = 10000.0 # per-obstacle collision penalty
 obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
+
+binary_cost_opp = false
 opp_drone = 10000.0 # per collision other drone penalty
 opp_drone_exp = 5 # weight of smoth collision cost using exponent was 13
+
+use_anisotropic_opp = true
+opp_axial = 0.25
+opp_lateral = 0.10
+
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 
@@ -53,7 +61,7 @@ contour = 40.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
 lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 0.01      #0.1 ~10 seconds 0.4 ~6 seconds
+progress = 0.1      #0.1 ~10 seconds 0.4 ~6 seconds
 
 [controller.attitude] # AttitudeController parameters
 t_total = 7.8
@@ -98,8 +106,16 @@ thrust = 1.0 # was 0.0; regularise toward hover thrust
 yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
 obstacle = 10000.0 # per-obstacle collision penalty
 obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
+
+
+binary_cost_opp = false
 opp_drone = 10000.0 # per collision other drone penalty
 opp_drone_exp = 5 # weight of smoth collision cost using exponent was 13
+
+use_anisotropic_opp = true
+opp_axial = 0.25
+opp_lateral = 0.10
+
 floor = 500.0 # penalty weight for states below floor_z
 floor_z = 0.1 # height (m) below which the floor penalty applies
 

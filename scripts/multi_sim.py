@@ -149,7 +149,7 @@ def simulate(
         for ctrl in controller_instances:
             ctrl.episode_callback()  # Update the controller internal state and models.
             ctrl.episode_reset()
-        log_episode_stats(obs, config, finish_times, controller_names)
+        log_episode_stats(obs, finish_times, controller_names)
         ep_times.append(finish_times.copy())
 
     # Close the environment
