@@ -309,8 +309,29 @@ class SplinePlanner:
         takeoff_z_off = 0.25
 
         waypoints = [start_pos]
-        gates_pos = obs["gates_pos"]
-        gates_quat = obs["gates_quat"]
+        gates_pos_orig = obs["gates_pos"]
+        gates_quat_orig = obs["gates_quat"]
+
+        gate_sequence = obs["gate_sequence"]
+        gate_sequence_dir = obs["gate_sequence_direction"]
+
+        gates_pos = []
+        gates_quat = []
+
+        for idx, direction in zip(gate_sequence, gate_sequence_dir):
+            gates_pos.append(gates_pos_orig[idx])
+
+            quat = np.array(gates_quat_orig[idx], copy=True)
+
+            if direction == -1:
+                # Rotate 180° about the gate's local z-axis
+                rot = R.from_quat(quat) * R.from_euler("z", 180, degrees=True)
+                quat = rot.as_quat()
+
+            gates_quat.append(quat)
+
+        gates_pos = np.asarray(gates_pos)
+        gates_quat = np.asarray(gates_quat)
 
         takeoff = start_pos.copy() 
         vec_first_gate = gates_pos[0] - start_pos
