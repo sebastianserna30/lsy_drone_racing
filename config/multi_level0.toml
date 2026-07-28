@@ -67,6 +67,7 @@ pred_offset_tau = 0.5         # s; decay of the opponent's off-spline offset in 
 anchor_fwd = 0.10             # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75  # m; residual above which the anchor is re-acquired globally
 yields = false                # opponents modelled NON-yielding: ego takes full responsibility
+match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
 drone_exp = 5.0               # weight of smooth collision cost using exponent, was 13
 use_anisotropic = false       # elongate the keep-out along the opponent's heading
 axial = 0.25                  # fore/aft keep-out half-length (m)

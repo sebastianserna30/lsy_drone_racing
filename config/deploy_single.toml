@@ -55,6 +55,7 @@ pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in
 anchor_fwd = 0.1               # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally
 yields = false                 # model opponents as avoiding us too (only used by model="mppi")
+match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
 drone_exp = 2000.0             # weight of the smooth exponential collision cost
 # Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
 # velocity heading: being behind is costly, alongside is cheap -> sideways overtake.

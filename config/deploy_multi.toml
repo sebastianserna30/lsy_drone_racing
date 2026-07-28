@@ -34,11 +34,11 @@ v_theta_sigma = 0.6        # exploration noise on v_theta (m/s)
 
 [controller.mppi.cost] # ego cost weights
 # contour = off-path (perpendicular) error; high to thread gate centres cleanly
-contour = 20.0
+contour = 80.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
 lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 1.0
+progress = 1.5
 z = 80.0                   # extra penalty for altitude error
 ang_vel = 0.0              # angular-velocity penalty (off)
 ang_acc = 0.0              # angular-acceleration penalty (off)
@@ -55,24 +55,25 @@ floor_z = 0.1              # height (m) below which the floor penalty applies
 #   "spline_progress" = kinematic spline-follow predictor — recommended for REAL: robust to an
 #                        unknown opponent controller, no opponent dynamics in the sim (~2x cheaper)
 #   "const_vel"       = straight-line predictor
-model = "spline_progress"      # mppi | spline_progress | const_vel
+model = "mppi"      # mppi | spline_progress | const_vel
 pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in spline_progress
-anchor_fwd = 0.1               # m; forward slack of the theta anchor search window
+anchor_fwd = 0.10              # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally
 yields = false                 # model opponents as avoiding us too (only used by model="mppi")
-drone_exp = 50                 # smooth opponent-collision weight (folded from mppi++_overtake; sweep: >=50 yields)
+match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
+drone_exp = 5.0                 # smooth opponent-collision weight (folded from mppi++_overtake; sweep: >=50 yields)
 # Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
 # velocity heading: being behind is costly, alongside is cheap -> sideways overtake.
 use_anisotropic = true         # elongate the keep-out along the opponent's heading
 axial = 0.25                   # fore/aft keep-out half-length (m)
-lateral = 0.1                  # sideways keep-out half-width (m) ~2x drone_radius (actual collision dist)
+lateral = 0.10                  # sideways keep-out half-width (m) ~2x drone_radius (actual collision dist)
 core_radius = 0.18             # hard isotropic core the ellipse may never admit closer than
 vel_ema = 0.3                  # EMA low-pass on the observed opponent velocity
 blend_v0 = 0.2                 # iso<->aniso blend centre (m/s)
 blend_width = 0.05             # blend width (m/s)
 # Behind-aware contour relaxation is opt-in (disabled on this branch); enable + tune:
-use_behind_contour = false     # relax contour cost when an opponent is ahead, to allow passing
-behind_radius = 0.6
+use_behind_contour = true     # relax contour cost when an opponent is ahead, to allow passing
+behind_radius = 0.42
 contour_behind_scale = 0.15
 downwash = 1000.0              # below-opponent wake penalty; the sim does NOT model downwash
 downwash_radius = 0.3          # wake cylinder radius (m)

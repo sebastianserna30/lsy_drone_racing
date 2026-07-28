@@ -108,6 +108,7 @@ class AttitudeMPPIController(Controller):
         # opponent's controller.
         self.opponent_model = cfg.opponent.model
         self.n_sim_agents = self.n_agents if self.opponent_model == "mppi" else 1
+        self._match_pace = cfg.opponent.match_pace
         # [roll, pitch, yaw, thrust, v_theta]. The sim only ever receives the first 4; v_theta is
         # the MPCC progress speed, integrated in the rollout.
         self.num_inputs = 5
@@ -391,6 +392,18 @@ class AttitudeMPPIController(Controller):
                 )
                 self._theta[a] = th
                 theta_starts.append(th)
+        # Drive the modelled opponent's reference forward at the speed it is actually flying,
+        # instead of at whatever pace the ego's own progress reward pulls it to.
+        if A > 1 and self.opponent_model == "mppi" and self._match_pace:
+            for a in range(1, self.n_sim_agents):
+                v_prog = opponents.forward_speed(
+                    self._paths, a, theta_starts[a], self._tracker.vel_filt[a], self.v_theta_max
+                )
+                # Re-pinned every step, so the progress reward cannot ratchet the modelled
+                # opponent's pace up over time. Sigma stays > 0: truncated_normal divides by it.
+                self.mean_controls[a] = self.mean_controls[a].at[:, :, 4].set(v_prog)
+                self.noise_sigmas[a] = self.noise_sigmas[a].at[:, :, 4].set(0.05)
+
         # Predictor-mode opponents keep theta on the host for the prediction, but never enter
         # the rollout.
         theta0 = jnp.asarray(

@@ -172,6 +172,10 @@ class OpponentConfig:
     anchor_reacquire_dist: float  # residual above which the anchor is re-acquired globally
 
     yields: bool  # model opponents as avoiding us too (only meaningful for model="mppi")
+    # Pin the modelled opponent's progress speed to the one it is observed flying (model="mppi"
+    # only). Without it the modelled opponent races at whatever pace the ego's own progress
+    # reward pulls it to, which is the ego's pace, not the opponent's.
+    match_pace: bool
     drone_exp: float  # weight of the smooth exponential collision cost
 
     use_anisotropic: bool  # elongate the keep-out along the opponent's heading
