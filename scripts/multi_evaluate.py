@@ -96,7 +96,6 @@ def main():
         "controllers": [controller["file"] for controller in config.controller],
         "simulation": {
             "n_runs": n_runs,
-            "n_drones": n_drones,
         },
         "episode_times": ep_times.tolist(),
         "metrics": {

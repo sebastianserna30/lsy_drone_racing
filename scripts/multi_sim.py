@@ -152,8 +152,11 @@ def simulate(
         log_episode_stats(obs, finish_times, controller_names)
         ep_times.append(finish_times.copy())
 
-    # Close the environment
+    # Close the environment and release JAX/XLA resources before the next run.
     env.close()
+    import jax
+    jax.clear_caches()
+
     return ep_times
 
 
