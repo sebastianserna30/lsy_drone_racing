@@ -142,7 +142,7 @@ class DownwashTestController(AttitudeMPPIController):
         # drone_radius (0.12). A full CONE_RADIUS (0.5 m) keep-out walls off the
         # path and stalls the drone; ~0.4 m bends it around while staying mostly
         # out of the downwash cone.
-        initial_info["experiment"]["env"]["obstacle_radius"] = 0.40 - 0.12
+        initial_info["controller"]["mppi"]["geometry"]["obstacle_radius"] = 0.40 - 0.12
         super().__init__(initial_obs, info, initial_info)
 
     def render_callback(self, sim: Sim) -> None:

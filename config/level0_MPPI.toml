@@ -10,52 +10,78 @@ ctrl_freq = 50 # Hz
 
 
 [controller.mppi] # MPPI parameters
-N = 25
-T = 0.5 # seconds, control horizon duration. Note that dt = T / horizon
-n_samples = 5000
-noise_sigma = 0.01 # Initial noise std
-temperature = 0.25
-elite_percentage = 0.01 # Top percent for averaging in [0,1]
-beta = 0.6 # Noise smoothing in [0,1] (no smoothing to max smoothing)
-alpha = 0.1 # weighted variance update weight
+N = 25                     # rollout horizon in steps
+T = 0.5                    # seconds, control horizon duration. Note that dt = T / horizon
+n_samples = 5000           # total rollouts per step; must be divisible by K
+noise_sigma = 0.01         # Initial noise std
+temperature = 0.25         # MPPI softmax temperature
+elite_percentage = 0.01    # Top percent for averaging in [0,1]
+beta = 0.6                 # Noise smoothing in [0,1] (no smoothing to max smoothing)
+alpha = 0.1                # weighted variance update weight
 min_variance = 0.02
-K = 5 # means
-action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
-# changedPractical: MPCC progress-variable (theta) params. NOTE these are read from
-# [controller.mppi] (mppi_cfg), NOT from [controller.mppi.cost] — keep them here.
-v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
-v_theta_max = 6.0    # cap on progress speed
-v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
+K = 5                      # means
+action_ema = 0.4           # EMA blend on executed action: ema * new + (1-ema) * prev
+agents = []                # per-agent overrides; empty means every agent shares the values above
 
-[controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
-curvature_weight = 2.0 # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
-clearance = 0.22 # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
-lut_samples = 1500
+# MPCC progress channel: the reference is keyed on arc length, and each rollout advances
+# its own theta by a sampled v_theta (the 5th control channel).
+v_theta_init = 2.0         # nominal forward progress speed (m/s) ~ path_length / t_total
+v_theta_max = 6.0          # cap on progress speed
+v_theta_sigma = 0.6        # exploration noise on v_theta (m/s)
 
-[controller.mppi.cost] # MPPI cost-function weights
-pos = 40.0 # position tracking
-z = 80.0 # extra penalty for altitude error
-vel = 1.0 # velocity tracking (original 1.0)
-ang_vel = 0.0 # angular-velocity penalty (off)
-ang_acc = 0.0 # angular-acceleration penalty (off)
-tilt = 1.0 # was 5.0; loosened to allow aggressive roll/pitch
-thrust = 1.0 # was 0.0; regularise toward hover thrust
-yaw = 2.0 # was 0.0; added to stabilise yaw oscillation
-obstacle = 10000.0 # per-obstacle collision penalty
-obstacle_exp = 18 # obstacle collision penalty for smouth exponential cost
-opp_drone = 10000.0 # per collision other drone penalty (inert in single-agent)
-opp_drone_exp = 6 # weight of smoth collision cost using exponent was 13
-floor = 500.0 # penalty weight for states below floor_z
-floor_z = 0.1 # height (m) below which the floor penalty applies
-
+[controller.mppi.cost] # ego cost weights
 # contour = off-path (perpendicular) error; high to thread gate centres cleanly
 contour = 20.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
 lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
 progress = 1.0
+z = 80.0                   # extra penalty for altitude error
+ang_vel = 0.0              # angular-velocity penalty (off)
+ang_acc = 0.0              # angular-acceleration penalty (off)
+tilt = 1.0                 # was 5.0; loosened to allow aggressive roll/pitch
+thrust = 1.0               # was 0.0; regularise toward hover thrust
+yaw = 2.0                  # was 0.0; added to stabilise yaw oscillation
+obstacle = 10000.0         # per-obstacle collision penalty
+floor = 500.0              # penalty weight for states below floor_z
+floor_z = 0.1              # height (m) below which the floor penalty applies
 
+[controller.mppi.opponent]
+model = "mppi"                 # mppi | spline_progress | const_vel
+pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in spline_progress
+anchor_fwd = 0.1               # m; forward slack of the theta anchor search window
+anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally
+yields = false                 # model opponents as avoiding us too (only used by model="mppi")
+drone_exp = 6                  # weight of smoth collision cost using exponent was 13
+# Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
+# velocity heading: being behind is costly, alongside is cheap -> sideways overtake.
+use_anisotropic = false        # elongate the keep-out along the opponent's heading
+axial = 0.25                   # fore/aft keep-out half-length (m)
+lateral = 0.1                  # sideways keep-out half-width (m)
+core_radius = 0.18             # hard isotropic core the ellipse may never admit closer than
+vel_ema = 0.3                  # EMA low-pass on the observed opponent velocity
+blend_v0 = 0.2                 # iso<->aniso blend centre (m/s)
+blend_width = 0.05             # blend width (m/s)
+# Behind-aware contour relaxation is opt-in (disabled on this branch); enable + tune:
+use_behind_contour = false     # relax contour cost when an opponent is ahead, to allow passing
+behind_radius = 0.6
+contour_behind_scale = 0.15
+downwash = 1000.0              # below-opponent wake penalty; the sim does NOT model downwash
+downwash_radius = 0.3          # wake cylinder radius (m)
+downwash_dz = 0.6              # wake depth below the opponent (m)
+stale_inflate_rate = 1.0       # keep-out inflation per second of tracking staleness
+stale_max = 0.5                # staleness cap (s) -> max inflation 1 + rate*cap
+
+[controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
+t_total = 6.0              # was 5.0; target matches PPO lap time (3.20s)
+curvature_weight = 2.0     # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
+clearance = 0.22           # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
+lut_samples = 1500
+
+[controller.mppi.geometry] # physical radii (m), moved here from [experiment.env]
+drone_radius = 0.12        # 86mm + safety margin
+obstacle_radius = 0.055    # 110mm diameter pipes
+gate_frame_radius = 0.08
 
 [deploy]
 ### Settings only relevant for deployment
@@ -151,30 +177,7 @@ minval = [-0.1, -0.1, -0.1]
 maxval = [0.1, 0.1, 0.1]
 
 #Everything for MPPI
-[drone]
-id = 52
-channel = 80
-model = "cf21B_500"
-pos_landing = [1.5, 1.5, 0.0] # landing position of the drone in global frame
-pos_update_freq = 10 # Hz, frequency for onboard estimator updates
 
-[experiment]
-pos_trajectory = [0.0, 0.25, 1.05] # position in global frame around which the trajectory is centered
-trajectory = "lissajous" # type of trajectory, e.g., figure8, ellipse, figure8_bent, melon, ...
-plane = "xy" # plane in which the trajectoy lies, e.g., xy, xz. Ignored for 3d trajectories
-scaling = [1.6, 1.6, 0.0] # maximum size in m of the trajectory, [2.0, 0.5, 1.0], [2.0, 1.0, 0.5]
-time = 20 # time per loop of the trajectory
-n_runs = 1 # number of runs
-yaw_mode = "constant" # yaw behavior: constant, velocity, direction
-yaw_setting = 0 # yaw parameter, e.g., for constant: angle in rad, for velocity: rate in rot/T
-soft_start = true # enable/disable soft start
-[experiment.env]
-drone_radius = 0.12  # 86mm + safety margin
-obstacle_radius = 0.055  # 110mm diameter pipes
-gate_frame_radius = 0.08
-obstacle_length = 1.0
-obstacles = [[-0.5952511429786682, 0.6061187982559204, 0.0], [-0.19837862253189087, 0.5998428463935852, 0.0], [-0.02609270066022873, 0.20298467576503754, 0.0], [-0.2003815621137619, -0.18774467706680298, 0.0], [0.19617629051208496, 0.621827244758606, 0.0], [-0.39951029419898987, 0.20067864656448364, 0.0], [0.40579113364219666, 0.20579855144023895, 0.0], [-0.016219481825828552, -0.59394371509552, 0.0], [0.6024446487426758, 0.6278328895568848, 0.0], [0.20104502141475677, -0.18950968980789185, 0.0]]
-
-[plot]
-show = false # enable/disable showing plots
-save = true # enable/disable saving plots
+# [drone], [experiment] and [plot] removed: they were inherited from another framework. The
+# only keys anything read were the radii (now [controller.mppi.geometry]) and drone.model
+# (now sim.drone_model, which already held the same value).

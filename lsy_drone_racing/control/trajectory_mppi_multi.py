@@ -5,6 +5,10 @@ the batched observation so the ego drone (this controller's rank) is agent 0 and
 agent 1, then delegates everything to the base controller, which models BOTH drones in one shared
 MPPI rollout batch (n_agents=2). The opponent is no longer a separate nested MPPI: it is drone 1 in
 the base's rollout, with its own spline, and the symmetric collision term lives in the base cost.
+
+The base also supports kinematic opponent models, where the opponent is not simulated at all and
+the ego is scored against a predicted trajectory instead. This wrapper is unaffected either way:
+it only reorders the batched obs.
 """
 
 from __future__ import annotations  # Python 3.10 type hints
@@ -12,7 +16,6 @@ from __future__ import annotations  # Python 3.10 type hints
 from typing import TYPE_CHECKING
 
 import numpy as np
-from crazyflow.sim import Sim
 from ml_collections import ConfigDict
 
 from lsy_drone_racing.control.trajectory_mppi import (
@@ -20,6 +23,7 @@ from lsy_drone_racing.control.trajectory_mppi import (
 )
 
 if TYPE_CHECKING:
+    from crazyflow.sim import Sim
     from numpy.typing import NDArray
 
 # Per-drone state keys carry an agent axis into the base; every other key (gates, obstacles,
