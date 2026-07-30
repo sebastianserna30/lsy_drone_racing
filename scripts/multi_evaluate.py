@@ -33,7 +33,7 @@ def json_default(obj):
 
 def main():
     """Run the multi-drone simulation N times and save the results as 'evaluation.csv'."""
-    n_runs = 20
+    n_runs = 40
     n_fit_memory = 5
     assert n_runs % n_fit_memory == 0
     n_loops = int(n_runs/n_fit_memory)
@@ -92,7 +92,6 @@ def main():
     results = {
         "timestamp": timestamp,
         "config_file": config_file,
-        "config": config.to_dict(),
         "controllers": [controller["file"] for controller in config.controller],
         "simulation": {
             "n_runs": n_runs,
@@ -110,6 +109,7 @@ def main():
             "overtakes": overtakes,
             "overtakes_percent": percent_overtake,
         },
+        "config": config.to_dict(),
     }
 
     result_dir = Path(__file__).parents[1] / "evaluation_results/multi_sim"
