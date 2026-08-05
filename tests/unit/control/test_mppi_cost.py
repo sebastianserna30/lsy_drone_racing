@@ -34,8 +34,6 @@ def params() -> cost.OpponentCostParams:
         downwash=1000.0,
         downwash_radius=0.3,
         downwash_dz=0.6,
-        behind_radius=0.6,
-        contour_behind_scale=0.15,
     )
 
 
@@ -190,26 +188,45 @@ def test_downwash_ends_below_downwash_dz(params: cost.OpponentCostParams):
     assert float(wake[0]) == 0.0
 
 
-@pytest.mark.unit
-def test_symmetric_collision_is_self_masked(params: cost.OpponentCostParams):
-    """A drone must not collide with itself, however close it is to its own position."""
-    pos = jnp.zeros((2, 3, 3))  # 2 worlds, 3 agents, all co-located
-    out = np.asarray(cost.symmetric_collision(params, pos, 3))
-    assert out.shape == (2, 3)
-    # each agent sees the other two at distance 0 -> exp(0) = 1 each, and itself masked out
-    assert out[0, 0] == pytest.approx(2.0)
+# Tests for symmetric_collision and behind_contour_factor were removed with those functions: the
+# Nash IBR gives every agent the real anisotropic keep-out, and best-responding to the opponent's
+# actual plan subsumes the hand-rolled contour relaxation.
 
 
 @pytest.mark.unit
-def test_behind_contour_factor_only_triggers_for_an_opponent_ahead_and_close(
-    params: cost.OpponentCostParams,
-):
-    """Relaxing the racing line is only justified when someone is actually blocking it."""
-    ego = jnp.zeros((3, 3))
-    tangent = jnp.tile(jnp.array([1.0, 0.0, 0.0]), (3, 1))
-    ahead_close = cost.behind_contour_factor(params, ego, tangent, jnp.array([[0.3, 0.0, 0.0]]))
-    ahead_far = cost.behind_contour_factor(params, ego, tangent, jnp.array([[3.0, 0.0, 0.0]]))
-    behind = cost.behind_contour_factor(params, ego, tangent, jnp.array([[-0.3, 0.0, 0.0]]))
-    assert float(ahead_close[0]) == pytest.approx(params.contour_behind_scale)
-    assert float(ahead_far[0]) == pytest.approx(1.0)
-    assert float(behind[0]) == pytest.approx(1.0)
+def test_coupled_cost_matches_a_per_step_loop(params: cost.OpponentCostParams):
+    """The post-scan coupled cost must reproduce the in-scan version to float32 rounding.
+
+    Moving the opponent terms out of the rollout scan is a refactor, not a model change, so the
+    horizon sum of per-step ``opponent_terms`` has to agree whether the steps are walked one at
+    a time or by ``vmap``. It does NOT agree bit-for-bit: vmapping changes XLA's fusion, which
+    reassociates the arithmetic. The residual is ~1e-17 absolute, far below anything physical,
+    but it does mean this refactor cannot be verified by exact run diffing the way the earlier
+    package split was -- behaviour has to be judged over seeds instead.
+    """
+    rng = np.random.default_rng(0)
+    horizon, n_opp, n_sim_agents = 7, 2, 2
+    ego_pos = jnp.asarray(rng.normal(size=(horizon, W, 3)), dtype=jnp.float32)
+    opp_pos = jnp.asarray(rng.normal(size=(horizon, n_opp, 3)), dtype=jnp.float32)
+    opp_vel = jnp.asarray(rng.normal(size=(horizon, n_opp, 3)), dtype=jnp.float32)
+    inflate = jnp.asarray(rng.uniform(1.0, 1.5, size=(n_opp,)), dtype=jnp.float32)
+
+    # The old shape: score each step separately, then sum over the horizon.
+    per_step = [
+        cost.opponent_terms(params, ego_pos[t], opp_pos[t], opp_vel[t], inflate)
+        for t in range(horizon)
+    ]
+    want_coll = jnp.sum(jnp.stack([c for c, _ in per_step]), axis=0)
+    want_wake = jnp.sum(jnp.stack([d for _, d in per_step]), axis=0)
+
+    got = cost.build_coupled_cost_fn(params, n_sim_agents)(ego_pos, opp_pos, opp_vel, inflate)
+
+    # Only the ego (agent 0) carries a coupled cost; the rest of the column stays zero.
+    np.testing.assert_allclose(
+        np.asarray(got["opp_drone"][:, 0]), np.asarray(want_coll), rtol=1e-5, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        np.asarray(got["downwash"][:, 0]), np.asarray(want_wake), rtol=1e-5, atol=1e-12
+    )
+    assert got["opp_drone"].shape == (W, n_sim_agents)
+    np.testing.assert_array_equal(np.asarray(got["opp_drone"][:, 1:]), 0.0)

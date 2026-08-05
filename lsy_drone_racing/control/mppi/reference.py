@@ -52,7 +52,9 @@ class ReferencePaths:
         return len(self.theta_grid_np)
 
 
-def build_paths(planners: list[SplinePlanner], n_lut: int, device: object) -> ReferencePaths:
+def build_paths(
+    planners: list[SplinePlanner], n_lut: int, device: object
+) -> ReferencePaths:
     """Reparameterize each planner's time-based spline to arc-length progress theta.
 
     For every agent, densely sample the position spline in time, accumulate segment lengths to
@@ -94,7 +96,9 @@ def build_paths(planners: list[SplinePlanner], n_lut: int, device: object) -> Re
     )
 
 
-def ref_at_theta(theta: Array, tg: Array, pos_lut: Array, tan_lut: Array) -> tuple[Array, Array]:
+def ref_at_theta(
+    theta: Array, tg: Array, pos_lut: Array, tan_lut: Array
+) -> tuple[Array, Array]:
     """LUT lookup: reference position and unit path tangent at progress theta (arc length).
 
     theta is a scalar; vmap over rollouts. LUT arrays are passed explicitly so the same helper

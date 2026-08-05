@@ -142,6 +142,10 @@ class SplineConfig:
     curvature_weight: float
     clearance: float
     lut_samples: int
+    # A dip gate makes the reference double back on itself, which this arc-length MPCC handles
+    # badly (see reference.py: the theta anchor can jump backwards). Setting this false replaces
+    # the dip with a lateral bypass. Defaults true so existing configs keep their behaviour.
+    dip_allowed: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +175,6 @@ class OpponentConfig:
     anchor_fwd: float  # forward slack (m) of the theta anchor search window
     anchor_reacquire_dist: float  # residual above which the anchor is re-acquired globally
 
-    yields: bool  # model opponents as avoiding us too (only meaningful for model="mppi")
     # Pin the modelled opponent's progress speed to the one it is observed flying (model="mppi"
     # only). Without it the modelled opponent races at whatever pace the ego's own progress
     # reward pulls it to, which is the ego's pace, not the opponent's.
@@ -187,9 +190,10 @@ class OpponentConfig:
     blend_v0: float  # iso<->aniso blend centre (m/s)
     blend_width: float  # blend width (m/s)
 
-    use_behind_contour: bool  # relax contour cost when an opponent is ahead, to allow passing
-    behind_radius: float
-    contour_behind_scale: float
+    # Iterative best response over the cached rollouts. Only meaningful for model = "mppi",
+    # where the opponents are simulated and so have a sample bank to best-respond with.
+    ibr_iters: int  # best-response passes; 0 = single unilateral response; < 0 = off (A/B control)
+    ibr_mode: str  # "vmap" (Jacobi, simultaneous) or "scan" (Gauss-Seidel, sequential)
 
     downwash: float  # below-opponent wake penalty; the sim does NOT model downwash
     downwash_radius: float
@@ -211,6 +215,7 @@ class AgentOverride:
     t_total: float | None = None
     curvature_weight: float | None = None
     clearance: float | None = None
+    dip_allowed: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,31 @@
+=== START constvel 2026-08-04T22:45:27+02:00 ===
+=== DONE constvel rc=0 2026-08-05T00:47:17+02:00 ===
+progress=0.1    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=11.43s
+progress=0.2    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=9.30s
+progress=0.4    opp_t=7.66  oppOK=88%  both=68%  overtake=0%  ours=80%+-6pp  t=8.44s
+progress=0.6    opp_t=7.66  oppOK=88%  both=68%  overtake=0%  ours=80%+-6pp  t=8.32s
+progress=0.8    opp_t=7.66  oppOK=88%  both=65%  overtake=0%  ours=75%+-7pp  t=8.29s
+progress=1.0    opp_t=7.66  oppOK=88%  both=58%  overtake=0%  ours=68%+-7pp  t=8.24s
+progress=1.5    opp_t=7.66  oppOK=88%  both=32%  overtake=8%  ours=42%+-8pp  t=8.04s
+summary -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_progress_2026-08-04_22-45-32.csv
+=== START ibr 2026-08-05T00:47:17+02:00 ===
+=== DONE ibr rc=0 2026-08-05T04:55:18+02:00 ===
+progress=0.1    opp_t=7.66  oppOK=88%  both=80%  overtake=0%  ours=90%+-5pp  t=11.59s
+progress=0.2    opp_t=7.66  oppOK=88%  both=82%  overtake=0%  ours=92%+-4pp  t=9.55s
+progress=0.4    opp_t=7.66  oppOK=88%  both=82%  overtake=0%  ours=92%+-4pp  t=8.97s
+progress=0.6    opp_t=7.66  oppOK=88%  both=80%  overtake=0%  ours=90%+-5pp  t=8.63s
+progress=0.8    opp_t=7.66  oppOK=88%  both=80%  overtake=0%  ours=90%+-5pp  t=8.46s
+progress=1.0    opp_t=7.66  oppOK=88%  both=82%  overtake=0%  ours=92%+-4pp  t=8.39s
+progress=1.5    opp_t=7.66  oppOK=88%  both=80%  overtake=0%  ours=90%+-5pp  t=8.30s
+summary -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_progress_2026-08-05_00-47-23.csv
+=== START parallel 2026-08-05T04:55:18+02:00 ===
+=== DONE parallel rc=0 2026-08-05T07:53:30+02:00 ===
+progress=0.1    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=11.73s
+progress=0.2    opp_t=7.66  oppOK=88%  both=72%  overtake=0%  ours=85%+-6pp  t=9.50s
+progress=0.4    opp_t=7.66  oppOK=88%  both=68%  overtake=0%  ours=80%+-6pp  t=8.91s
+progress=0.6    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=8.61s
+progress=0.8    opp_t=7.66  oppOK=88%  both=68%  overtake=0%  ours=80%+-6pp  t=8.48s
+progress=1.0    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=8.39s
+progress=1.5    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=80%+-6pp  t=8.33s
+summary -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_progress_2026-08-05_04-55-24.csv
+=== ALL ARMS COMPLETE 2026-08-05T07:53:30+02:00 ===

@@ -66,19 +66,24 @@ model = "mppi"                # mppi | spline_progress | const_vel
 pred_offset_tau = 0.5         # s; decay of the opponent's off-spline offset in spline_progress
 anchor_fwd = 0.10             # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75  # m; residual above which the anchor is re-acquired globally
-yields = false                # opponents modelled NON-yielding: ego takes full responsibility
 match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
-drone_exp = 5.0               # weight of smooth collision cost using exponent, was 13
+# Smooth opponent-collision weight. Must stay ABOVE `downwash`: the wake cylinder only extends
+# DOWNWARD from the opponent, so its only exit is upward THROUGH the other drone. If escaping the
+# wake is cheaper than the collision it passes through, the ego climbs into the opponent.
+drone_exp = 2000.0
 use_anisotropic = true       # elongate the keep-out along the opponent's heading
-axial = 0.20                  # fore/aft keep-out half-length (m)
-lateral = 0.1                # sideways keep-out half-width (m)
-core_radius = 0.1            # hard isotropic core the ellipse may never admit closer than
+axial = 0.25                  # fore/aft keep-out half-length (m)
+lateral = 0.18               # sideways half-width (m); 0.24 (contact) will not fit a 0.40 m gate
+core_radius = 0.1            # inert while <= lateral: the min then always picks the ellipse
 vel_ema = 0.3                 # EMA low-pass on the observed opponent velocity
 blend_v0 = 0.2                # iso<->aniso blend centre (m/s)
 blend_width = 0.05            # blend width (m/s)
-use_behind_contour = false    # relax contour cost when an opponent is ahead, to allow passing
-behind_radius = 0.6
-contour_behind_scale = 0.15
+# Iterative best response (Nash): re-score the cached rollouts against each other until the
+# choices stop moving. Only applies to model = "mppi", where opponents are simulated and so have
+# a sample bank to respond with. NOTE this models the opponent as avoiding us as hard as we avoid
+# it -- a real opponent that does not yield will not behave this way.
+ibr_iters = 3                  # best-response passes; 0 = single unilateral response
+ibr_mode = "scan"              # scan = Gauss-Seidel (converges) | vmap = Jacobi (can oscillate)
 downwash = 1000.0             # below-opponent wake penalty; the sim does NOT model downwash
 downwash_radius = 0.3         # wake cylinder radius (m)
 downwash_dz = 0.6             # wake depth below the opponent (m)

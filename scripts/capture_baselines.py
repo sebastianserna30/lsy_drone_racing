@@ -43,6 +43,13 @@ BASELINES: dict[str, tuple[str, str, dict[str, Any]]] = {
     # experiment.env.gate_frame_radius and so crashes the MPPI controller on the first control
     # step. level2_MPPI.toml is the same track with a complete controller block.
     "single": ("sim.py", "level2_MPPI.toml", {}),
+    # The config we actually fly. n_samples is cut 10x so the refactor-verification loop is
+    # quick; a pure refactor must be bit-exact at any sample count, and 10000 still divides K=5.
+    "deploy_multi": (
+        "multi_sim.py",
+        "deploy_multi.toml",
+        {"controller.1.mppi.n_samples": 10000},
+    ),
     "multi_mppi": (
         "multi_sim.py",
         "multi_level0.toml",

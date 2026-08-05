@@ -125,8 +125,6 @@ class OpponentCostParams:
     downwash: float  # below-opponent wake penalty
     downwash_radius: float  # wake cylinder radius (m)
     downwash_dz: float  # wake depth below the opponent (m)
-    behind_radius: float
-    contour_behind_scale: float
 
 
 def opponent_terms(
@@ -180,111 +178,58 @@ def opponent_terms(
     return coll, downwash
 
 
-def symmetric_collision(params: OpponentCostParams, pos: Array, n_agents: int) -> Array:
-    """Old symmetric (world-paired, isotropic) drone-drone collision, for every agent.
-
-    Only used when ``opponent.yields`` is on: it is what makes modeled opponents avoid the ego
-    in their own MPPI update. Off by default, because a real opponent will not yield and the ego
-    must not plan as if it would.
-
-    Args: pos (W, A, 3). Returns (W, A), self-masked.
-    """
-    safe = params.drone_radius * 2.5
-    delta = pos[:, :, None, :] - pos[:, None, :, :]  # (W, A, A, 3)
-    d_pair = jnp.linalg.norm(delta, axis=-1) / safe  # (W, A, A)
-    eye = jnp.eye(n_agents)
-    return (jnp.exp(-(d_pair**2)) * (1.0 - eye)).sum(-1)  # (W, A), self-masked
-
-
-def behind_contour_factor(
-    params: OpponentCostParams, ego_pos: Array, ego_tangent: Array, opp_pos: Array
-) -> Array:
-    """Contour-cost scale factor letting the ego leave the racing line to overtake.
-
-    When an opponent prediction is ahead of the ego along its path tangent AND within
-    behind_radius, the ego's off-path cost is scaled down so leaving the line becomes cheap.
-
-    Args: ego_pos (W, 3); ego_tangent (W, 3); opp_pos (P, 3).
-    Returns (W,) multiplier, either contour_behind_scale or 1.0.
-    """
-    rel = opp_pos[None, :, :] - ego_pos[:, None, :]  # (W, P, 3) opp relative to ego
-    ahead = jnp.sum(ego_tangent[:, None, :] * rel, axis=-1)  # (W, P): opp ahead of ego
-    dist = jnp.linalg.norm(rel, axis=-1)  # (W, P)
-    behind = ((ahead > 0.0) & (dist < params.behind_radius)).any(axis=-1)  # (W,)
-    return jnp.where(behind, params.contour_behind_scale, 1.0)
-
-
-def build_cost_fn(
+def build_stage_cost_fn(
     weights: dict[str, float],
-    opp_params: OpponentCostParams,
     paths: ReferencePaths,
     geometry: Geometry,
-    n_agents: int,
     n_sim_agents: int,
-    opponent_model: str,
-    opp_yields: bool,
-    use_behind_contour: bool,
-    rep_w: Array | None,
-    rep_a: Array | None,
 ) -> Callable[..., dict[str, Array]]:
-    """Assemble the per-step cost over all simulated agents.
+    """Assemble the per-step DECOUPLED cost over all simulated agents.
+
+    Every term here is a pure function of one agent's own state, so it can be accumulated
+    inside the rollout scan and never needs re-evaluating. The opponent-coupled terms live in
+    :func:`build_coupled_cost_fn` and run after the scan, on the cached trajectories, so the
+    best-response iteration can re-score them without re-rolling the sim.
 
     Baked into a closure so the weights, LUTs and agent counts stay compile-time constants;
-    `rollout.build_rollout_fn` takes the result as its `cost_fn`.
+    `rollout.build_rollout_fn` takes the result as its `stage_cost_fn`.
 
     Args:
         weights: per-drone cost weights (see :func:`single_drone_terms`).
-        opp_params: opponent keep-out geometry.
         paths: arc-length reference LUTs, one per agent.
         geometry: physical radii.
-        n_agents: total agents, including predictor-mode opponents that are never simulated.
         n_sim_agents: agents whose dynamics are in the rollout batch.
-        opponent_model: "mppi", "spline_progress" or "const_vel".
-        opp_yields: give modelled opponents a collision term in their own update.
-        use_behind_contour: relax the ego contour cost to allow overtaking.
-        rep_w: (P,) world indices of the opponent representatives, "mppi" mode only.
-        rep_a: (P,) agent indices of the opponent representatives, "mppi" mode only.
 
     Returns:
-        A jitted ``cost_fn(data, theta, v_theta, obstacles, gate_frame_obstacles, opp_pred_pos,
-        opp_pred_vel, opp_inflate)`` returning term_name -> (W, A).
+        A jitted ``stage_cost_fn(data, theta, v_theta, obstacles, gate_frame_obstacles)``
+        returning term_name -> (W, A).
     """
     save_dist_obst = geometry.obstacle_radius + geometry.drone_radius
     save_dist_gate_obst = geometry.gate_frame_radius + geometry.drone_radius
 
-    def cost_fn(
+    def stage_cost_fn(
         data: SimData,
         theta: Array,
         v_theta: Array,
         obstacles: Array,
         gate_frame_obstacles: Array,
-        opp_pred_pos: Array,
-        opp_pred_vel: Array,
-        opp_inflate: Array,
     ) -> dict[str, Array]:
-        """Per-term cost for all simulated agents (MPCC contour/lag/progress formulation).
+        """Per-term decoupled cost for all simulated agents (MPCC contour/lag/progress).
 
         Terms are kept separate rather than summed so the rollout can accumulate each over the
         horizon and the logger can report the per-mode breakdown.
-
-        The ego is scored against a fixed set of P opponent predictions, worst case over P: in
-        "mppi" mode the zero-noise mode-mean representative worlds, in predictor modes the
-        kinematic trajectories passed in. For n_agents == 1 the opponent block is skipped
-        entirely and this reduces to the single-agent cost.
         """
         pos = data.states.pos  # (W, A, 3)
-        vel = data.states.vel  # (W, A, 3) — real heading for the anisotropic keep-out
         ang_vel = data.states.ang_vel  # (W, A, 3)
         ang_acc = data.states_deriv.ang_vel  # (W, A, 3)
         cmd = data.controls.attitude.staged_cmd  # (W, A, 4)
 
         # The loop unrolls over the small agent axis at trace time; each agent uses its own LUT.
-        per_agent, tangents = [], []
+        per_agent = []
         for a in range(n_sim_agents):
             ref_pos, tangent = vmap(reference.ref_at_theta, in_axes=(0, None, None, None))(
                 theta[:, a], paths.theta_grid[a], paths.pos_lut[a], paths.tan_lut[a]
             )
-            tangents.append(tangent)
             per_agent.append(
                 single_drone_terms(
                     pos[:, a], ang_vel[:, a], ang_acc[:, a], cmd[:, a], ref_pos, tangent,
@@ -292,33 +237,76 @@ def build_cost_fn(
                     save_dist_obst, save_dist_gate_obst, weights,
                 )
             )
-        terms = {k: jnp.stack([pa[k] for pa in per_agent], axis=1) for k in per_agent[0]}
-        tangent = jnp.stack(tangents, axis=1)  # (W, A, 3)
+        return {k: jnp.stack([pa[k] for pa in per_agent], axis=1) for k in per_agent[0]}
 
-        if n_agents > 1:
-            if opponent_model == "mppi":
-                rep_pos = pos[rep_w, rep_a]  # (P, 3)
-                rep_vel = vel[rep_w, rep_a]  # (P, 3)
-            else:
-                rep_pos, rep_vel = opp_pred_pos, opp_pred_vel  # (P, 3)
-            coll, downwash = opponent_terms(
-                opp_params, pos[:, 0], rep_pos, rep_vel, opp_inflate
-            )
-            n_worlds = pos.shape[0]
-            terms["opp_drone"] = jnp.zeros((n_worlds, n_sim_agents)).at[:, 0].set(coll)
-            terms["downwash"] = jnp.zeros((n_worlds, n_sim_agents)).at[:, 0].set(downwash)
-            if opponent_model == "mppi" and opp_yields:
-                # Off by default: a real opponent will not yield, so the ego must not plan as if
-                # it would.
-                coll_pair = symmetric_collision(opp_params, pos, n_sim_agents)
-                terms["opp_drone"] = terms["opp_drone"].at[:, 1:].set(
-                    opp_params.drone_exp * coll_pair[:, 1:]
-                )
+    return jax.jit(stage_cost_fn)
 
-            if use_behind_contour:
-                terms["contour"] = terms["contour"].at[:, 0].multiply(
-                    behind_contour_factor(opp_params, pos[:, 0], tangent[:, 0], rep_pos)
-                )
-        return terms
 
-    return jax.jit(cost_fn)
+def build_opp_state_fn(
+    opponent_model: str, rep_w: Array | None, rep_a: Array | None
+) -> Callable[..., tuple[Array, Array]]:
+    """Per-step opponent pose the ego is scored against, emitted from inside the rollout scan.
+
+    Two sources, one shape. In "mppi" mode the opponents are simulated in the same batch, so
+    their representative worlds are gathered from the live sim state; in the predictor modes
+    they are not simulated at all and the host-side kinematic trajectory is passed straight
+    through. Either way the coupled cost consumes (P, 3) per step.
+
+    Args:
+        opponent_model: "mppi", "spline_progress" or "const_vel".
+        rep_w: (P,) world indices of the opponent representatives, "mppi" mode only.
+        rep_a: (P,) agent indices of the opponent representatives, "mppi" mode only.
+
+    Returns:
+        ``opp_state_fn(data, opp_pred_pos_t, opp_pred_vel_t) -> (pos (P, 3), vel (P, 3))``.
+    """
+
+    def opp_state_fn(
+        data: SimData, opp_pred_pos_t: Array, opp_pred_vel_t: Array
+    ) -> tuple[Array, Array]:
+        if opponent_model == "mppi":
+            return data.states.pos[rep_w, rep_a], data.states.vel[rep_w, rep_a]
+        return opp_pred_pos_t, opp_pred_vel_t
+
+    return opp_state_fn
+
+
+def build_coupled_cost_fn(
+    opp_params: OpponentCostParams, n_sim_agents: int
+) -> Callable[..., dict[str, Array]]:
+    """Assemble the opponent-coupled cost, evaluated AFTER the rollout on cached trajectories.
+
+    Split out from the stage cost precisely so it is re-evaluable: iterative best response
+    re-scores these terms against a changing opponent selection many times per control step,
+    and re-running the sim rollout for each pass would be unaffordable.
+
+    Args:
+        opp_params: opponent keep-out geometry.
+        n_sim_agents: agents whose dynamics are in the rollout batch.
+
+    Returns:
+        A jitted ``coupled_cost_fn(ego_pos, opp_pos, opp_vel, opp_inflate)`` where ego_pos is
+        (N, W, 3), opp_pos/opp_vel are (N, P, 3) and opp_inflate is (P,), returning
+        term_name -> (W, A) already summed over the horizon.
+    """
+
+    def coupled_cost_fn(
+        ego_pos: Array, opp_pos: Array, opp_vel: Array, opp_inflate: Array
+    ) -> dict[str, Array]:
+        """Horizon-summed collision + downwash cost for the acting agent.
+
+        vmapped over the leading horizon axis; the per-step arithmetic is exactly what the
+        in-scan version used to do, so the horizon sum is unchanged.
+        """
+        def step(ego_p: Array, opp_p: Array, opp_v: Array) -> tuple[Array, Array]:
+            return opponent_terms(opp_params, ego_p, opp_p, opp_v, opp_inflate)
+
+        coll, downwash = vmap(step)(ego_pos, opp_pos, opp_vel)  # (N, W) each
+        coll, downwash = jnp.sum(coll, axis=0), jnp.sum(downwash, axis=0)  # (W,) each
+        n_worlds = ego_pos.shape[1]
+        return {
+            "opp_drone": jnp.zeros((n_worlds, n_sim_agents)).at[:, 0].set(coll),
+            "downwash": jnp.zeros((n_worlds, n_sim_agents)).at[:, 0].set(downwash),
+        }
+
+    return jax.jit(coupled_cost_fn)

@@ -1,0 +1,12 @@
+/home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/.pixi/envs/gpu/lib/python3.13/site-packages/jax/_src/abstract_arrays.py:145: RuntimeWarning: overflow encountered in cast
+  return literals.TypedNdArray(np.asarray(x, dtype))
+progress=0.1   solo_lap=11.38s +-1.08  finished 5/5
+progress=0.2   solo_lap=9.26s +-0.63  finished 5/5
+progress=0.4   solo_lap=7.06s +-0.57  finished 5/5
+progress=0.6   solo_lap=5.86s +-0.18  finished 5/5
+progress=0.8   solo_lap=5.67s +-0.38  finished 4/5
+progress=1.0   solo_lap=5.24s +-0.26  finished 5/5
+progress=1.5   solo_lap=5.00s +-0.58  finished 4/5
+
+-> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/opponent_solo_pace.csv
+0

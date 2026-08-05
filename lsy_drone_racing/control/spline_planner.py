@@ -33,10 +33,11 @@ class SplinePlanner:
         curvature_weight: float = 2.0,
         obstacles_pos: np.ndarray | None = None,
         clearance: float = 0.35,
+        dip_allowed: bool = True,
     ):
         """Build waypoints and fit a cubic spline through the race track."""
         self.t_total = t_total
-        self.waypoints = self._create_waypoints(start_pos, obs)
+        self.waypoints = self._create_waypoints(start_pos, obs, dip_allowed)
         if obstacles_pos is not None and len(obstacles_pos) > 0:
             self.waypoints = self._insert_obstacle_detours(
                 self.waypoints, obstacles_pos, clearance, t_total, curvature_weight
@@ -289,7 +290,7 @@ class SplinePlanner:
         return SplinePlanner._assemble_waypoints(waypoints, inserts)
 
     @staticmethod
-    def _create_waypoints(start_pos: np.ndarray, obs: dict) -> np.ndarray:
+    def _create_waypoints(start_pos: np.ndarray, obs: dict, dip_allowed: bool = True) -> np.ndarray:
         """Entry + centre per gate; exit added only for dip gates.
 
         Normal gates (straight-ish approach): entry + centre (2 waypoints).
@@ -297,6 +298,10 @@ class SplinePlanner:
           entry + centre + exit (3 waypoints), where the exit is placed back on
           the entry side of the gate so the drone arcs out the way it came in
           before heading to the next gate — preserving the original dip behaviour.
+
+        With ``dip_allowed`` false no gate ever dips, and gate 2 instead gets a lateral bypass
+        waypoint. A dip reverses the reference, which an arc-length MPCC tracks badly; the bypass
+        keeps the path monotone at the cost of a wider line.
         """
         entry_offset = 0.23
         entry_offset_prev = 0.10
@@ -331,7 +336,7 @@ class SplinePlanner:
                 vec_to_next_norm = vec_prev_norm
 
             theta = np.degrees(np.arccos(np.clip(np.dot(normal, vec_to_next_norm), -1.0, 1.0)))
-            is_dip = theta >= dip_degree
+            is_dip = dip_allowed and theta >= dip_degree
 
             # Entry — 0.23 m in front of gate along its normal, approach side
             gate_in_dir = entry_offset_prev * vec_prev_norm
@@ -357,6 +362,13 @@ class SplinePlanner:
                     add_normal_out = exit_offset - length_normal_out  # normal: exit far side
                     exit_ = centre + gate_out_dir + add_normal_out * normal
                 waypoints.append(exit_)
+
+            # Without the dip, gate 2 needs a way out that is not a reversal: swing wide to its
+            # side instead. The index and offset are the nominal track's, not derived from the
+            # geometry, so a randomised layout may need this re-checked for obstacle clearance.
+            if not dip_allowed and i == 2:
+                side_axis = R.from_quat(quat).apply([0.0, 1.0, 0.0])
+                waypoints.append(pos.copy() + 0.6 * side_axis)
 
         return np.array(waypoints)
 

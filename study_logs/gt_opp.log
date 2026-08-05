@@ -1,0 +1,59 @@
+=== START gt_opp 2026-08-05T12:23:57+02:00 ===
+/home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/.pixi/envs/gpu/lib/python3.13/site-packages/jax/_src/abstract_arrays.py:145: RuntimeWarning: overflow encountered in cast
+  return literals.TypedNdArray(np.asarray(x, dtype))
+--- seed 1000 done (1/40) ---
+opp_progress=0.1    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=100%+-0pp  t=9.04s  n=1
+opp_progress=0.2    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=100%+-0pp  t=11.10s  n=1
+opp_progress=0.4    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=0%+-0pp  t=nans  n=1
+opp_progress=0.6    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=0%+-0pp  t=nans  n=1
+opp_progress=0.8    opp_t=7.42  oppOK=100%  both=100%  overtake=0%  ours=100%+-0pp  t=8.12s  n=1
+opp_progress=1.0    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=100%+-0pp  t=8.66s  n=1
+opp_progress=1.5    opp_t=3.94  oppOK=100%  both=100%  overtake=0%  ours=100%+-0pp  t=5.08s  n=1
+--- seed 1001 done (2/40) ---
+opp_progress=0.1    opp_t=8.68  oppOK=50%  both=50%  overtake=0%  ours=100%+-0pp  t=9.24s  n=2
+opp_progress=0.2    opp_t=8.50  oppOK=50%  both=50%  overtake=0%  ours=100%+-0pp  t=10.16s  n=2
+opp_progress=0.4    opp_t=10.06  oppOK=50%  both=0%  overtake=0%  ours=0%+-0pp  t=nans  n=2
+opp_progress=0.6    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=50%+-35pp  t=10.80s  n=2
+opp_progress=0.8    opp_t=6.48  oppOK=100%  both=100%  overtake=0%  ours=100%+-0pp  t=7.34s  n=2
+opp_progress=1.0    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=100%+-0pp  t=7.37s  n=2
+opp_progress=1.5    opp_t=3.94  oppOK=50%  both=50%  overtake=0%  ours=50%+-35pp  t=5.08s  n=2
+--- seed 1002 done (3/40) ---
+opp_progress=0.1    opp_t=9.09  oppOK=67%  both=33%  overtake=0%  ours=67%+-27pp  t=9.24s  n=3
+opp_progress=0.2    opp_t=8.50  oppOK=33%  both=33%  overtake=0%  ours=67%+-27pp  t=10.16s  n=3
+opp_progress=0.4    opp_t=10.06  oppOK=33%  both=0%  overtake=0%  ours=33%+-27pp  t=10.42s  n=3
+opp_progress=0.6    opp_t=nan  oppOK=0%  both=0%  overtake=0%  ours=67%+-27pp  t=8.15s  n=3
+opp_progress=0.8    opp_t=6.79  oppOK=100%  both=100%  overtake=0%  ours=100%+-0pp  t=7.72s  n=3
+opp_progress=1.0    opp_t=8.18  oppOK=33%  both=33%  overtake=0%  ours=100%+-0pp  t=8.07s  n=3
+opp_progress=1.5    opp_t=5.90  oppOK=67%  both=33%  overtake=0%  ours=33%+-27pp  t=5.08s  n=3
+--- seed 1003 done (4/40) ---
+opp_progress=0.1    opp_t=8.92  oppOK=75%  both=50%  overtake=0%  ours=75%+-22pp  t=9.33s  n=4
+opp_progress=0.2    opp_t=7.86  oppOK=50%  both=50%  overtake=0%  ours=75%+-22pp  t=9.44s  n=4
+opp_progress=0.4    opp_t=8.09  oppOK=50%  both=0%  overtake=0%  ours=25%+-22pp  t=10.42s  n=4
+opp_progress=0.6    opp_t=5.22  oppOK=25%  both=25%  overtake=0%  ours=75%+-22pp  t=7.39s  n=4
+opp_progress=0.8    opp_t=6.79  oppOK=75%  both=75%  overtake=0%  ours=100%+-0pp  t=7.12s  n=4
+opp_progress=1.0    opp_t=8.18  oppOK=25%  both=25%  overtake=0%  ours=75%+-22pp  t=8.07s  n=4
+opp_progress=1.5    opp_t=5.97  oppOK=75%  both=50%  overtake=0%  ours=50%+-25pp  t=6.22s  n=4
+--- seed 1004 done (5/40) ---
+opp_progress=0.1    opp_t=8.92  oppOK=60%  both=40%  overtake=0%  ours=60%+-22pp  t=9.33s  n=5
+opp_progress=0.2    opp_t=7.86  oppOK=40%  both=40%  overtake=0%  ours=60%+-22pp  t=9.44s  n=5
+opp_progress=0.4    opp_t=8.09  oppOK=40%  both=0%  overtake=0%  ours=40%+-22pp  t=9.76s  n=5
+opp_progress=0.6    opp_t=5.82  oppOK=40%  both=20%  overtake=0%  ours=60%+-22pp  t=7.39s  n=5
+opp_progress=0.8    opp_t=6.79  oppOK=60%  both=60%  overtake=0%  ours=100%+-0pp  t=6.62s  n=5
+opp_progress=1.0    opp_t=6.82  oppOK=40%  both=40%  overtake=0%  ours=80%+-18pp  t=7.68s  n=5
+opp_progress=1.5    opp_t=5.97  oppOK=60%  both=40%  overtake=0%  ours=40%+-22pp  t=6.22s  n=5
+--- seed 1005 done (6/40) ---
+opp_progress=0.1    opp_t=8.92  oppOK=50%  both=33%  overtake=0%  ours=50%+-20pp  t=9.33s  n=6
+opp_progress=0.2    opp_t=7.86  oppOK=33%  both=33%  overtake=0%  ours=67%+-19pp  t=9.50s  n=6
+opp_progress=0.4    opp_t=8.09  oppOK=33%  both=0%  overtake=0%  ours=50%+-20pp  t=8.67s  n=6
+opp_progress=0.6    opp_t=5.82  oppOK=33%  both=17%  overtake=0%  ours=50%+-20pp  t=7.39s  n=6
+opp_progress=0.8    opp_t=6.79  oppOK=50%  both=50%  overtake=0%  ours=83%+-15pp  t=6.62s  n=6
+opp_progress=1.0    opp_t=7.31  oppOK=50%  both=33%  overtake=0%  ours=67%+-19pp  t=7.68s  n=6
+opp_progress=1.5    opp_t=5.97  oppOK=50%  both=33%  overtake=0%  ours=50%+-20pp  t=6.99s  n=6
+--- seed 1006 done (7/40) ---
+opp_progress=0.1    opp_t=9.11  oppOK=57%  both=43%  overtake=0%  ours=57%+-19pp  t=9.61s  n=7
+opp_progress=0.2    opp_t=8.47  oppOK=43%  both=29%  overtake=0%  ours=57%+-19pp  t=9.50s  n=7
+opp_progress=0.4    opp_t=8.09  oppOK=29%  both=0%  overtake=0%  ours=43%+-19pp  t=8.67s  n=7
+opp_progress=0.6    opp_t=7.10  oppOK=43%  both=29%  overtake=0%  ours=57%+-19pp  t=8.16s  n=7
+opp_progress=0.8    opp_t=6.99  oppOK=57%  both=57%  overtake=0%  ours=86%+-13pp  t=6.91s  n=7
+opp_progress=1.0    opp_t=7.69  oppOK=57%  both=43%  overtake=0%  ours=71%+-17pp  t=8.20s  n=7
+opp_progress=1.5    opp_t=5.97  oppOK=43%  both=29%  overtake=0%  ours=57%+-19pp  t=7.46s  n=7

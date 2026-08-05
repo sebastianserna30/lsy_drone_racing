@@ -22,8 +22,10 @@ from scipy.spatial.transform import Rotation as R
 
 from lsy_drone_racing.control import Controller
 from lsy_drone_racing.control.mppi import (
+    ConfigError,
     MPPIConfig,
     diagnostics,
+    ibr,
     opponents,
     optimizer,
     reference,
@@ -136,8 +138,6 @@ class AttitudeMPPIController(Controller):
 
         # Plain Python floats, so they fold into the JAX trace as compile-time constants.
         cost, opp = cfg.cost, cfg.opponent
-        self.opp_yields = opp.yields
-        self.use_behind_contour = opp.use_behind_contour
         self.w_opp_drone_exp = opp.drone_exp
 
         # Insertion order is load-bearing: the rollout sums these in iteration order and float
@@ -216,6 +216,18 @@ class AttitudeMPPIController(Controller):
             act_low=self.act_low,
             act_high=self.act_high,
         )
+        # The wake cylinder extends only DOWNWARD from the opponent, so the ego's cheapest exit
+        # from it is upward, through the opponent itself. That path is blocked only by the
+        # collision term, so a wake penalty at or above `drone_exp` makes flying into the other
+        # drone the rational move. Checked here rather than in config.py because the opponent
+        # block is dead code at n_agents == 1, where the ordering does not matter.
+        if self.n_agents > 1 and opp.downwash >= opp.drone_exp:
+            raise ConfigError(
+                f"controller.mppi.opponent: downwash ({opp.downwash}) must be < drone_exp "
+                f"({opp.drone_exp}). The wake keep-out has no top, so its only exit is through "
+                "the opponent; if that exit is cheaper than the collision, the ego climbs into "
+                "the other drone instead of avoiding it."
+            )
         self._opp_cost = cost_mod.OpponentCostParams(
             drone_radius=cfg.geometry.drone_radius,
             drone_exp=opp.drone_exp,
@@ -228,8 +240,6 @@ class AttitudeMPPIController(Controller):
             downwash=opp.downwash,
             downwash_radius=opp.downwash_radius,
             downwash_dz=opp.downwash_dz,
-            behind_radius=opp.behind_radius,
-            contour_behind_scale=opp.contour_behind_scale,
         )
         self.thrust = np.zeros(4)
         self._prev_action = np.array([0.0, 0.0, 0.0, HOVER_THRUST])  # [roll, pitch, yaw, thrust]
@@ -276,35 +286,58 @@ class AttitudeMPPIController(Controller):
                 ),
                 obstacles_pos=initial_obs["obstacles_pos"],
                 clearance=float(self._agent_cfg(a, "clearance", cfg.spline.clearance)),
+                dip_allowed=bool(self._agent_cfg(a, "dip_allowed", cfg.spline.dip_allowed)),
             )
             for a in range(self.n_agents)
         ]
 
         # Splines are fixed at reset; the controller never replans waypoints mid-run.
         self._paths = reference.build_paths(self._planner, cfg.spline.lut_samples, self.sim.device)
-        self._cost_fn = cost_mod.build_cost_fn(
+        self._stage_cost_fn = cost_mod.build_stage_cost_fn(
             weights=self._weights,
-            opp_params=self._opp_cost,
             paths=self._paths,
             geometry=cfg.geometry,
-            n_agents=self.n_agents,
             n_sim_agents=self.n_sim_agents,
-            opponent_model=self.opponent_model,
-            opp_yields=opp.yields,
-            use_behind_contour=opp.use_behind_contour,
-            rep_w=self._rep_w,
-            rep_a=self._rep_a,
+        )
+        self._opp_state_fn = cost_mod.build_opp_state_fn(
+            opponent_model=self.opponent_model, rep_w=self._rep_w, rep_a=self._rep_a
+        )
+        self._coupled_cost_fn = cost_mod.build_coupled_cost_fn(
+            opp_params=self._opp_cost, n_sim_agents=self.n_sim_agents
+        )
+        # Best response needs every agent to carry a bank of candidate rollouts, which only the
+        # joint "mppi" model provides; the kinematic predictors have a single trajectory and
+        # nothing to iterate against, so they keep the one-shot coupled cost.
+        # ibr_iters < 0 disables best response entirely and falls back to the older scheme, where
+        # the ego is scored against the opponents' mode means. Kept as the A/B control: without
+        # it there is no way to measure what the Nash coupling is actually buying.
+        self._use_ibr = (
+            self.opponent_model == "mppi" and self.n_agents > 1 and opp.ibr_iters >= 0
+        )
+        self._ibr_fn = (
+            ibr.build_ibr_fn(
+                opp_params=self._opp_cost,
+                n_sim_agents=self.n_sim_agents,
+                dt=self.dt,
+                n_iters=opp.ibr_iters,
+                mode=opp.ibr_mode,
+            )
+            if self._use_ibr
+            else None
         )
         self._rollout_fn = rollout.build_rollout_fn(
             sim=self.sim,
             step_fn=self.step_fn,
-            cost_fn=self._cost_fn,
+            stage_cost_fn=self._stage_cost_fn,
+            opp_state_fn=self._opp_state_fn,
             horizon=self.N,
             dt=self.dt,
             s_total=self._paths.s_total[None, : self.n_sim_agents],
         )
         self._update_fn = optimizer.build_update_fn(
             rollout_fn=self._rollout_fn,
+            coupled_cost_fn=self._coupled_cost_fn,
+            ibr_fn=self._ibr_fn,
             sampler=self._sampler,
             K=self.K,
             M=self.M,
@@ -312,6 +345,7 @@ class AttitudeMPPIController(Controller):
             n_samples=self.n_samples,
             num_inputs=self.num_inputs,
             n_sim_agents=self.n_sim_agents,
+            n_agents=self.n_agents,
         )
         self._anchor_params = reference.AnchorParams(
             v_theta_max=self.v_theta_max,
@@ -420,7 +454,13 @@ class AttitudeMPPIController(Controller):
         opp_pred_vel = np.zeros((self.N, 1, 3), dtype=np.float32)
         inflate_arr = np.ones(1, dtype=np.float32)
         if A > 1:
-            if self.opponent_model == "mppi":
+            if self._use_ibr:
+                # (A, A): entry (a, b) is the inflation applied when agent a is scored against
+                # agent b. Only the ego's row carries real staleness — an opponent's view of us
+                # is never stale, because our own state comes from the flight controller.
+                inflate_arr = np.ones((self.n_sim_agents, self.n_sim_agents), dtype=np.float32)
+                inflate_arr[0, 1:] = opp_inflate[: self.n_sim_agents - 1]
+            elif self.opponent_model == "mppi":
                 # rep order matches self._rep_w/_rep_a construction: (agent a, mode k)
                 inflate_arr = np.concatenate(
                     [
@@ -453,6 +493,7 @@ class AttitudeMPPIController(Controller):
             costs_grouped,
             positions_grouped,
             mode_term_costs,
+            ibr_best_samples,
         ) = self._update_fn(
             subkey,
             obs_state,
@@ -484,6 +525,12 @@ class AttitudeMPPIController(Controller):
         self.all_best_idx = [int(b) for b in best_idx]
         self.all_costs = costs_grouped
         self.mode_term_costs = mode_term_costs[0]  # ego per-mode best-sample cost breakdown
+        # Which rollout each agent settled on at the best-response fixed point. Worth watching:
+        # if these keep flipping between control steps the iteration is oscillating rather than
+        # converging, which is the failure mode of Jacobi updates on a tightly coupled game.
+        self.ibr_best_samples = (
+            None if ibr_best_samples is None else np.asarray(ibr_best_samples)
+        )
 
         # v_theta is internal: it advances the committed progress rather than reaching the env.
         full_action = np.asarray(best_action)  # back to CPU, 5-dim
@@ -513,7 +560,7 @@ class AttitudeMPPIController(Controller):
                 opp_pred_log = np.concatenate(reps, axis=0).transpose(1, 0, 2)  # (N, P, 3)
             self._logger.log_step(
                 self._t, obs, action, self.mode_term_costs, self.costs, self.best_mode_idx,
-                opp_pred_log,
+                opp_pred_log, self.ibr_best_samples,
             )
 
         return action

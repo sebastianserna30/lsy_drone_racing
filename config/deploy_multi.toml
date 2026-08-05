@@ -59,22 +59,26 @@ model = "mppi"      # mppi | spline_progress | const_vel
 pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in spline_progress
 anchor_fwd = 0.10              # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally
-yields = false                 # model opponents as avoiding us too (only used by model="mppi")
 match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
-drone_exp = 5.0                 # smooth opponent-collision weight (folded from mppi++_overtake; sweep: >=50 yields)
+# Smooth opponent-collision weight. Must stay ABOVE `downwash`: the wake cylinder only extends
+# DOWNWARD from the opponent, so its only exit is upward THROUGH the other drone. If escaping the
+# wake is cheaper than the collision it passes through, the ego climbs into the opponent.
+drone_exp = 2000.0
 # Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
 # velocity heading: being behind is costly, alongside is cheap -> sideways overtake.
 use_anisotropic = true         # elongate the keep-out along the opponent's heading
 axial = 0.25                   # fore/aft keep-out half-length (m)
-lateral = 0.10                  # sideways keep-out half-width (m) ~2x drone_radius (actual collision dist)
+lateral = 0.24                  # sideways keep-out half-width (m) ~2x drone_radius (actual collision dist)
 core_radius = 0.18             # hard isotropic core the ellipse may never admit closer than
 vel_ema = 0.3                  # EMA low-pass on the observed opponent velocity
 blend_v0 = 0.2                 # iso<->aniso blend centre (m/s)
 blend_width = 0.05             # blend width (m/s)
-# Behind-aware contour relaxation is opt-in (disabled on this branch); enable + tune:
-use_behind_contour = true     # relax contour cost when an opponent is ahead, to allow passing
-behind_radius = 0.42
-contour_behind_scale = 0.15
+# Iterative best response (Nash): re-score the cached rollouts against each other until the
+# choices stop moving. Only applies to model = "mppi", where opponents are simulated and so have
+# a sample bank to respond with. NOTE this models the opponent as avoiding us as hard as we avoid
+# it -- a real opponent that does not yield will not behave this way.
+ibr_iters = 3                  # best-response passes; 0 = single unilateral response
+ibr_mode = "scan"              # scan = Gauss-Seidel (converges) | vmap = Jacobi (can oscillate)
 downwash = 1000.0              # below-opponent wake penalty; the sim does NOT model downwash
 downwash_radius = 0.3          # wake cylinder radius (m)
 downwash_dz = 0.6              # wake depth below the opponent (m)
@@ -137,7 +141,7 @@ lookat = [0.0, 0.0, 0.0]
 
 [env]
 id = "MultiDroneRacing-v0"
-seed = -1               # -1 for random seeds or a non-zero integer for reproducibility
+seed = 22               # -1 for random seeds or a non-zero integer for reproducibility
 [[env.kwargs]]
 freq = 50               # Frequency of the environment's step function, in Hz
 sensor_range = 0.7      # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.

@@ -75,6 +75,7 @@ class CostLogger:
         costs: NDArray[np.floating],
         best_mode_idx: int,
         opp_pred: NDArray[np.floating] | None = None,
+        ibr_best_samples: NDArray[np.integer] | None = None,
     ) -> None:
         """Record the full-horizon rollout cost breakdown of the K parallel modes.
 
@@ -92,6 +93,10 @@ class CostLogger:
             best_mode_idx: the winning mode.
             opp_pred: (N, P, 3) opponent trajectories the ego collision was scored against, so
                 prediction error can be measured offline against the logged true positions.
+            ibr_best_samples: (A,) rollout each agent settled on at the best-response fixed
+                point. Log it to tell convergence from oscillation: a solve that has settled
+                moves these smoothly with the trajectory, whereas simultaneous (Jacobi) updates
+                on two tightly coupled drones flip them back and forth every control step.
         """
         if self.buf is None:
             return
@@ -115,6 +120,8 @@ class CostLogger:
         fields["cost_total"] = np.sum(list(terms.values()), axis=0)
         if opp_pred is not None:
             fields["opp_pred"] = np.asarray(opp_pred).copy()
+        if ibr_best_samples is not None:
+            fields["ibr_best_samples"] = np.asarray(ibr_best_samples).copy()
 
         for key, val in fields.items():
             self.buf.setdefault(key, []).append(val)
