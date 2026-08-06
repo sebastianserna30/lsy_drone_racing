@@ -223,4 +223,4 @@ obstacle_length = 1.0
 
 [plot]
 show = false # enable/disable showing plots
-save = true # enable/disable saving plots
+save = false # enable/disable saving plots

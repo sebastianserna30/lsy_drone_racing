@@ -56,7 +56,7 @@ contour = 40.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
 lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 0.2      #0.1 ~10 seconds 0.4 ~6 seconds
+progress = 0.3     #0.1 ~10 seconds 0.4 ~6 seconds
 
 [deploy]
 ### Settings only relevant for deployment
@@ -222,4 +222,4 @@ obstacle_length = 1.0
 
 [plot]
 show = false # enable/disable showing plots
-save = true # enable/disable saving plots
+save = false # enable/disable saving plots

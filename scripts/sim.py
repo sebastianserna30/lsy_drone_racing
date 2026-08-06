@@ -11,14 +11,16 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import fire
 import gymnasium
+import numpy as np
 from gymnasium.wrappers.jax_to_numpy import JaxToNumpy
 
-from lsy_drone_racing.utils import load_config, load_controller
+from lsy_drone_racing.utils import load_config, load_controller, save_top_view_trajectory
 
 if TYPE_CHECKING:
     from lsy_drone_racing.control.controller import Controller
@@ -34,6 +36,8 @@ def simulate(
     controller: str | None = None,
     n_runs: int = 1,
     render: bool | None = None,
+    save_trajectory_plot: bool | None = None,
+    output_dir: str | None = None,
 ) -> list[float]:
     """Evaluate the drone controller over multiple episodes.
 
@@ -43,12 +47,25 @@ def simulate(
             the controller specified in the config file is used.
         n_runs: The number of episodes.
         render: Enable/disable rendering the simulation.
+        save_trajectory_plot: Save a top-view PNG of the drone trajectory after each run.
+        output_dir: Directory where trajectory PNGs should be written.
 
     Returns:
         A list of episode times.
     """
     # Load configuration and check if firmare should be used.
     config = load_config(Path(__file__).parents[1] / "config" / config)
+    plot_cfg = config.get("plot", {})
+    if save_trajectory_plot is None:
+        save_trajectory_plot = bool(plot_cfg.get("save", False))
+    show_trajectory_plot = bool(plot_cfg.get("show", False))
+
+    output_root = (
+        Path(output_dir)
+        if output_dir is not None
+        else Path(__file__).resolve().parents[1] / "outputs"
+    )
+    output_root.mkdir(parents=True, exist_ok=True)
     if render is None:
         render = config.sim.render
     else:
@@ -72,8 +89,10 @@ def simulate(
     env = JaxToNumpy(env)
 
     ep_times = []
-    for _ in range(n_runs):  # Run n_runs episodes with the controller
+    for run_idx in range(n_runs):  # Run n_runs episodes with the controller
         obs, info = env.reset()
+        trajectory_positions: list[list[float]] = []
+        trajectory_times: list[float] = []
         controller: Controller = controller_cls(obs, info, config)
         i = 0
         fps = 60
@@ -86,6 +105,8 @@ def simulate(
             control_time = time.perf_counter() - t_loop
 
             obs, reward, terminated, truncated, info = env.step(action)
+            trajectory_positions.append(np.asarray(obs["pos"], dtype=float).tolist())
+            trajectory_times.append(float(curr_time))
             # Update the controller internal state and models.
             t_callback = time.perf_counter()
             controller_finished = controller.step_callback(
@@ -104,6 +125,22 @@ def simulate(
 
         controller.episode_callback()  # Update the controller internal state and models.
         log_episode_stats(obs, curr_time)
+        if save_trajectory_plot:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            output_path = output_root / f"trajectory_run_{timestamp}.png"
+            save_top_view_trajectory(
+                positions=trajectory_positions,
+                output_path=output_path,
+                gate_positions=obs.get("gates_pos"),
+                gate_quaternions=obs.get("gates_quat"),
+                obstacle_positions=obs.get("obstacles_pos"),
+                time_values=(
+                    trajectory_times if bool(plot_cfg.get("color_by_time", False)) else None
+                ),
+                color_by_time=bool(plot_cfg.get("color_by_time", False)),
+                show=show_trajectory_plot,
+            )
+            logger.info("Saved trajectory plot to %s", output_path)
         controller.episode_reset()
         finished = obs["n_gates_passed"] == obs["gate_sequence"].shape[0]
         ep_times.append(curr_time if finished else None)

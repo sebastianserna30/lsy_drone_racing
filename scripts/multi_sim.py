@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,7 +20,7 @@ import gymnasium
 import numpy as np
 from gymnasium.wrappers.jax_to_numpy import JaxToNumpy
 
-from lsy_drone_racing.utils import load_config, load_controller
+from lsy_drone_racing.utils import load_config, load_controller, save_top_view_trajectory
 
 if TYPE_CHECKING:
     from lsy_drone_racing.control.controller import Controller
@@ -34,6 +35,8 @@ def simulate(
     controllers: str | None = None,
     n_runs: int = 1,
     render: bool | None = None,
+    save_trajectory_plot: bool | None = None,
+    output_dir: str | None = None,
 ) -> list[float]:
     """Evaluate the drone controller over multiple episodes.
 
@@ -49,6 +52,18 @@ def simulate(
     """
     # Load configuration and check if firmare should be used.
     config = load_config(Path(__file__).parents[1] / "config" / config)
+    plot_cfg = config.get("plot", {})
+    if save_trajectory_plot is None:
+        save_trajectory_plot = bool(plot_cfg.get("save", False))
+    show_trajectory_plot = bool(plot_cfg.get("show", False))
+
+    output_root = (
+        Path(output_dir)
+        if output_dir is not None
+        else Path(__file__).resolve().parents[1] / "outputs"
+    )
+    output_root.mkdir(parents=True, exist_ok=True)
+
     if render is None:
         render = config.sim.render
     else:
@@ -87,8 +102,10 @@ def simulate(
     fps = 60
 
     ep_times = []  # Per-run finish times for each drone (np.nan = did not finish)
-    for _ in range(n_runs):  # Run n_runs episodes with the controllers
+    for run_idx in range(n_runs):  # Run n_runs episodes with the controllers
         obs, info = env.reset()
+        trajectory_positions: list[list[list[float]]] = [[] for _ in range(n_drones)]
+        trajectory_times: list[list[float]] = [[] for _ in range(n_drones)]
 
         # Inject rank and frequency information when creating the controller.
         controller_instances: list[Controller] = []
@@ -118,6 +135,11 @@ def simulate(
                     actions[rank] = ctrl.compute_control(obs, ctrl_info)
 
             obs, reward, terminated, truncated, info = env.step(actions)
+            for rank in range(n_drones):
+                trajectory_positions[rank].append(
+                    np.asarray(obs["pos"][rank], dtype=float).tolist()
+                )
+                trajectory_times[rank].append(float(curr_time))
 
             track_len = obs["gate_sequence"].shape[-1]
             newly_finished = (obs["n_gates_passed"] == track_len) & np.isnan(finish_times)
@@ -149,6 +171,22 @@ def simulate(
         for ctrl in controller_instances:
             ctrl.episode_callback()  # Update the controller internal state and models.
             ctrl.episode_reset()
+        if save_trajectory_plot:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            output_path = output_root / f"trajectory_run_{timestamp}.png"
+            save_top_view_trajectory(
+                positions=trajectory_positions,
+                output_path=output_path,
+                gate_positions=obs.get("gates_pos"),
+                gate_quaternions=obs.get("gates_quat"),
+                obstacle_positions=obs.get("obstacles_pos"),
+                time_values=(
+                    trajectory_times if bool(plot_cfg.get("color_by_time", False)) else None
+                ),
+                color_by_time=bool(plot_cfg.get("color_by_time", False)),
+                show=show_trajectory_plot,
+            )
+            logger.info("Saved multi-drone trajectory plot to %s", output_path)
         log_episode_stats(obs, finish_times, controller_names)
         ep_times.append(finish_times.copy())
 
