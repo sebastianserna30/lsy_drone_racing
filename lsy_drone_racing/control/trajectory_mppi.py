@@ -88,7 +88,7 @@ class AttitudeMPPIController(Controller):
         self.M = self.n_samples // self.K  # samples per mode
         # changedPractical: sampled control dim is now 5 = [roll, pitch, yaw, thrust, v_theta].
         # The sim only ever receives the first 4; v_theta is the MPCC progress speed integrated
-        # in the rollout. Use self.num_inputs wherever the control dim was previously hardcoded as 4.
+        # in the rollout. Use self.num_inputs wherever the control dim was previously hardcoded as 4
         self.num_inputs = 5
 
         # changedPractical
@@ -114,7 +114,8 @@ class AttitudeMPPIController(Controller):
         self.step_fn = self.sim.build_step_fn()
 
         self.noise_sigmas = jnp.full(
-            (self.K, self.N, self.num_inputs), fill_value=mppi_cfg["noise_sigma"], device=self.sim.device
+            (self.K, self.N, self.num_inputs), fill_value=mppi_cfg["noise_sigma"], 
+            device=self.sim.device
         )
         self.temperature = mppi_cfg["temperature"]
         self.elite_percentage = mppi_cfg["elite_percentage"]
@@ -207,12 +208,15 @@ class AttitudeMPPIController(Controller):
         self._planner = SplinePlanner(
             self._start_pos,
             initial_obs,
-            t_total=self._spline_t_total,  # changedPractical: was 5.0; target matches PPO lap time (3.20s)
-            curvature_weight=self._spline_curvature_weight,  #  changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1 curve)
+            t_total=self._spline_t_total,  # changedPractical: was 5.0;
+            curvature_weight=self._spline_curvature_weight,  
+            #changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1)
             obstacles_pos=initial_obs[
                 "obstacles_pos"
             ],  # changedPractical: obs1 at (1.0,0.25) is 0.03m from no-detour spline
-            clearance=self._spline_clearance,  # changedPractical: 0.16-0.21 flips obs3 detour to SW (wrong side, path 8.0m); 0.22 stays NE (path 7.74m, min_obs 0.21m)
+            clearance=self._spline_clearance,  
+            # changedPractical: 0.16-0.21 flips obs3 detour to SW (wrong side, path 8.0m); 
+            # 0.22 stays NE (path 7.74m, min_obs 0.21m)
         )
 
         # changedPractical: build the arc-length LUT for the MPCC reparameterization. The spline
@@ -264,7 +268,8 @@ class AttitudeMPPIController(Controller):
         # TODO: Check this before real-hardware test;
         self._t = 0.0
         self._t_start = 0.0
-        self._theta = 0.0  # changedPractical: drop warmup progress so the first real step starts at theta=0
+        self._theta = 0.0  
+        # changedPractical: drop warmup progress so the first real step starts at theta=0
 
         if os.getenv("LOG_DRONE_DATA"):
             # Buffer is populated lazily via setdefault in _log_step_costs; see that method
@@ -496,7 +501,6 @@ class AttitudeMPPIController(Controller):
         info: dict | None = None,
     ) -> bool:
         """Increment the tick counter."""
-
         self.obstacles = jnp.array(obs["obstacles_pos"], device=self.sim.device)
 
         gates_changed = (
@@ -515,12 +519,15 @@ class AttitudeMPPIController(Controller):
                 self._planner = SplinePlanner(
                     self._start_pos,
                     obs,
-                    t_total=self._spline_t_total,  # changedPractical: was 5.0; target matches PPO lap time (3.20s), 3.7 works limit(level0)
-                    curvature_weight=2.0,  #  changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0→G1 curve)
+                    t_total=self._spline_t_total,  
+                    curvature_weight=2.0,  
+                    #changedPractical: k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the
+                    # G0→G1 curve)
                     obstacles_pos=obs[
                         "obstacles_pos"
                     ],  # changedPractical: obs1 at (1.0,0.25) is 0.03m from no-detour spline
-                    clearance=0.22,  # changedPractical: 0.16-0.21 flips obs3 detour to SW (wrong side, path 8.0m); 0.22 stays NE (path 7.74m, min_obs 0.21m)
+                    clearance=0.22,  # changedPractical: 0.16-0.21 flips obs3 detour to SW
+                    #(wrong side, path 8.0m); 0.22 stays NE (path 7.74m, min_obs 0.21m)
                 )
             self._last_gates_pos = obs["gates_pos"].copy()
             self._last_gates_quat = obs["gates_quat"].copy()
@@ -631,7 +638,7 @@ class AttitudeMPPIController(Controller):
         # Flatten for the physics engine (Physics doesn't care about K clusters)
         # 1. Transpose from (K, M, N, nu) -> (N, K, M, nu)
         # 2. Reshape to (N, K*M, nu)
-        controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N, -1, self.num_inputs)
+        controls_flat = candidate_controls.transpose(2, 0, 1, 3).reshape(self.N,-1, self.num_inputs)
 
         costs_flat, positions_flat, terms_flat = self.rollout_sim(
             obs, theta0, (controls_flat, refs, self.obstacles, self.gate_frame_obstacles)

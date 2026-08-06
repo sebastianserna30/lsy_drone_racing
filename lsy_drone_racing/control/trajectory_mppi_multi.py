@@ -14,8 +14,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 import numpy as np
-from crazyflow.sim import Sim
-from crazyflow.sim.visualize import draw_line, draw_points
+from crazyflow.sim.visualize import draw_line
 from ml_collections import ConfigDict
 
 from lsy_drone_racing.control.trajectory_mppi import (
@@ -23,6 +22,7 @@ from lsy_drone_racing.control.trajectory_mppi import (
 )
 
 if TYPE_CHECKING:
+    from crazyflow.sim import Sim
     from crazyflow.sim.data import SimData
     from numpy.typing import NDArray
 
@@ -114,7 +114,8 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
             else:
                 opp_pos = obs["pos"][self.opponent]
                 opp_vel = obs["vel"][self.opponent]
-                self._opponent.best_traj = np.array(opp_pos[None, :] + (opp_vel[None, :] * self.dt_array[:, None]))
+                self._opponent.best_traj = np.array(opp_pos[None, :] + (opp_vel[None, :] * 
+                                                                        self.dt_array[:, None]))
 
             info["opponent_traj"] = self._opponent.best_traj
             return super().compute_control({k: v[self.rank] for k, v in obs.items()}, info)
