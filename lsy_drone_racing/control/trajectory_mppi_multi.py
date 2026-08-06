@@ -55,8 +55,9 @@ class AttitudeMPPIController(SingleAttitudeMPPIController):
         # Create a new ConfigDict
         config = ConfigDict(config_dict)
         
-
-        self.opp_mppi = True
+        #for save deployment in the lab change to False
+        self.opp_mppi = config["controller"]["mppi"]["opponent_mppi"]
+        
         if self.opp_mppi:
             config_opp = copy.deepcopy(config)
             K_orig = config_opp.controller.mppi.K

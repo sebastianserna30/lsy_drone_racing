@@ -25,6 +25,7 @@ v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_to
 v_theta_max = 6.0    # cap on progress speed
 v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
 render_traj = false
+opponent_mppi = true    #need to be set to false (opponent prediction with constant velocity) for save deployment in real
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
 t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
@@ -88,6 +89,7 @@ action_ema = 0.4 # EMA blend on executed action: ema * new + (1-ema) * prev
 v_theta_init = 2.0   # nominal forward progress speed (m/s) ~ path_length / t_total
 v_theta_max = 6.0    # cap on progress speed
 v_theta_sigma = 0.6  # exploration noise on v_theta (m/s)
+opponent_mppi = true    #need to be set to false (opponent prediction with constant velocity) for save deployment in real
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
 t_total = 6.0 # was 5.0; target matches PPO lap time (3.20s)
