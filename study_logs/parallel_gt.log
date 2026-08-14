@@ -1,0 +1,328 @@
+=== START parallel_gt 2026-08-05T20:52:12+02:00 ===
+/home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/.pixi/envs/gpu/lib/python3.13/site-packages/jax/_src/abstract_arrays.py:145: RuntimeWarning: overflow encountered in cast
+  return literals.TypedNdArray(np.asarray(x, dtype))
+--- seed 1000 done (1/40) ---
+opp_progress=0.1    opp_t=5.94  oppOK=100%  overtake=0%(live 0%)  ours=100%+-0pp  t=6.30s  n=1
+opp_progress=0.2    opp_t=nan  oppOK=0%  overtake=100%(live 100%)  ours=100%+-0pp  t=5.12s  n=1
+opp_progress=0.4    opp_t=5.48  oppOK=100%  overtake=0%(live 0%)  ours=100%+-0pp  t=5.90s  n=1
+opp_progress=0.6    opp_t=5.30  oppOK=100%  overtake=0%(live 0%)  ours=100%+-0pp  t=5.70s  n=1
+opp_progress=0.8    opp_t=5.04  oppOK=100%  overtake=0%(live 0%)  ours=100%+-0pp  t=5.38s  n=1
+opp_progress=1.0    opp_t=4.74  oppOK=100%  overtake=0%(live 0%)  ours=100%+-0pp  t=5.24s  n=1
+opp_progress=1.5    opp_t=4.60  oppOK=100%  overtake=0%(live 0%)  ours=100%+-0pp  t=5.12s  n=1
+--- seed 1001 done (2/40) ---
+opp_progress=0.1    opp_t=5.94  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.59s  n=2
+opp_progress=0.2    opp_t=nan  oppOK=0%  overtake=100%(live 100%)  ours=100%+-0pp  t=5.09s  n=2
+opp_progress=0.4    opp_t=5.48  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.40s  n=2
+opp_progress=0.6    opp_t=5.30  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.50s  n=2
+opp_progress=0.8    opp_t=5.04  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=4.86s  n=2
+opp_progress=1.0    opp_t=4.74  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.31s  n=2
+opp_progress=1.5    opp_t=4.60  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.00s  n=2
+--- seed 1002 done (3/40) ---
+opp_progress=0.1    opp_t=5.69  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.69s  n=3
+opp_progress=0.2    opp_t=nan  oppOK=0%  overtake=67%(live 67%)  ours=67%+-27pp  t=5.09s  n=3
+opp_progress=0.4    opp_t=5.48  oppOK=33%  overtake=33%(live 33%)  ours=67%+-27pp  t=5.40s  n=3
+opp_progress=0.6    opp_t=5.29  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.55s  n=3
+opp_progress=0.8    opp_t=5.04  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.13s  n=3
+opp_progress=1.0    opp_t=4.88  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.35s  n=3
+opp_progress=1.5    opp_t=4.69  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.06s  n=3
+--- seed 1003 done (4/40) ---
+opp_progress=0.1    opp_t=5.69  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.55s  n=4
+opp_progress=0.2    opp_t=nan  oppOK=0%  overtake=75%(live 75%)  ours=75%+-22pp  t=5.03s  n=4
+opp_progress=0.4    opp_t=5.48  oppOK=25%  overtake=50%(live 50%)  ours=75%+-22pp  t=5.26s  n=4
+opp_progress=0.6    opp_t=5.29  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.36s  n=4
+opp_progress=0.8    opp_t=5.04  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=4.94s  n=4
+opp_progress=1.0    opp_t=4.88  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.16s  n=4
+opp_progress=1.5    opp_t=4.69  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.05s  n=4
+--- seed 1004 done (5/40) ---
+opp_progress=0.1    opp_t=5.69  oppOK=40%  overtake=40%(live 40%)  ours=80%+-18pp  t=5.55s  n=5
+opp_progress=0.2    opp_t=5.54  oppOK=20%  overtake=60%(live 60%)  ours=80%+-18pp  t=5.25s  n=5
+opp_progress=0.4    opp_t=5.48  oppOK=20%  overtake=40%(live 40%)  ours=60%+-22pp  t=5.26s  n=5
+opp_progress=0.6    opp_t=5.29  oppOK=40%  overtake=60%(live 60%)  ours=100%+-0pp  t=5.60s  n=5
+opp_progress=0.8    opp_t=5.05  oppOK=60%  overtake=40%(live 40%)  ours=100%+-0pp  t=5.06s  n=5
+opp_progress=1.0    opp_t=4.84  oppOK=60%  overtake=40%(live 40%)  ours=100%+-0pp  t=5.18s  n=5
+opp_progress=1.5    opp_t=4.73  oppOK=60%  overtake=40%(live 40%)  ours=100%+-0pp  t=5.16s  n=5
+--- seed 1005 done (6/40) ---
+opp_progress=0.1    opp_t=5.69  oppOK=33%  overtake=33%(live 33%)  ours=67%+-19pp  t=5.55s  n=6
+opp_progress=0.2    opp_t=5.54  oppOK=17%  overtake=50%(live 50%)  ours=67%+-19pp  t=5.25s  n=6
+opp_progress=0.4    opp_t=5.48  oppOK=17%  overtake=33%(live 33%)  ours=50%+-20pp  t=5.26s  n=6
+opp_progress=0.6    opp_t=5.19  oppOK=50%  overtake=50%(live 50%)  ours=83%+-15pp  t=5.60s  n=6
+opp_progress=0.8    opp_t=4.96  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.20s  n=6
+opp_progress=1.0    opp_t=4.96  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.29s  n=6
+opp_progress=1.5    opp_t=4.67  oppOK=67%  overtake=33%(live 33%)  ours=100%+-0pp  t=5.15s  n=6
+--- seed 1006 done (7/40) ---
+opp_progress=0.1    opp_t=5.69  oppOK=29%  overtake=43%(live 43%)  ours=71%+-17pp  t=5.33s  n=7
+opp_progress=0.2    opp_t=5.54  oppOK=14%  overtake=57%(live 57%)  ours=71%+-17pp  t=5.33s  n=7
+opp_progress=0.4    opp_t=5.48  oppOK=14%  overtake=43%(live 43%)  ours=57%+-19pp  t=5.26s  n=7
+opp_progress=0.6    opp_t=5.19  oppOK=43%  overtake=57%(live 57%)  ours=86%+-13pp  t=5.52s  n=7
+opp_progress=0.8    opp_t=4.96  oppOK=57%  overtake=43%(live 43%)  ours=100%+-0pp  t=5.13s  n=7
+opp_progress=1.0    opp_t=4.96  oppOK=57%  overtake=43%(live 43%)  ours=100%+-0pp  t=5.24s  n=7
+opp_progress=1.5    opp_t=4.67  oppOK=57%  overtake=29%(live 29%)  ours=86%+-13pp  t=5.15s  n=7
+--- seed 1007 done (8/40) ---
+opp_progress=0.1    opp_t=5.69  oppOK=25%  overtake=50%(live 50%)  ours=75%+-15pp  t=5.47s  n=8
+opp_progress=0.2    opp_t=5.54  oppOK=12%  overtake=62%(live 62%)  ours=75%+-15pp  t=5.28s  n=8
+opp_progress=0.4    opp_t=5.48  oppOK=12%  overtake=50%(live 50%)  ours=62%+-17pp  t=5.26s  n=8
+opp_progress=0.6    opp_t=5.19  oppOK=38%  overtake=62%(live 62%)  ours=88%+-12pp  t=5.65s  n=8
+opp_progress=0.8    opp_t=4.96  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.18s  n=8
+opp_progress=1.0    opp_t=4.96  oppOK=50%  overtake=38%(live 38%)  ours=88%+-12pp  t=5.24s  n=8
+opp_progress=1.5    opp_t=4.67  oppOK=50%  overtake=25%(live 25%)  ours=75%+-15pp  t=5.15s  n=8
+--- seed 1008 done (9/40) ---
+opp_progress=0.1    opp_t=7.99  oppOK=33%  overtake=44%(live 44%)  ours=67%+-16pp  t=5.47s  n=9
+opp_progress=0.2    opp_t=5.54  oppOK=11%  overtake=67%(live 67%)  ours=78%+-14pp  t=5.23s  n=9
+opp_progress=0.4    opp_t=5.48  oppOK=11%  overtake=56%(live 56%)  ours=67%+-16pp  t=5.18s  n=9
+opp_progress=0.6    opp_t=5.59  oppOK=44%  overtake=56%(live 56%)  ours=78%+-14pp  t=5.65s  n=9
+opp_progress=0.8    opp_t=4.96  oppOK=44%  overtake=56%(live 56%)  ours=100%+-0pp  t=5.17s  n=9
+opp_progress=1.0    opp_t=5.16  oppOK=56%  overtake=33%(live 33%)  ours=78%+-14pp  t=5.24s  n=9
+opp_progress=1.5    opp_t=4.89  oppOK=56%  overtake=22%(live 22%)  ours=67%+-16pp  t=5.15s  n=9
+--- seed 1009 done (10/40) ---
+opp_progress=0.1    opp_t=7.42  oppOK=40%  overtake=40%(live 40%)  ours=70%+-14pp  t=5.58s  n=10
+opp_progress=0.2    opp_t=5.55  oppOK=20%  overtake=60%(live 60%)  ours=80%+-13pp  t=5.32s  n=10
+opp_progress=0.4    opp_t=5.24  oppOK=20%  overtake=50%(live 50%)  ours=70%+-14pp  t=5.20s  n=10
+opp_progress=0.6    opp_t=5.51  oppOK=50%  overtake=50%(live 50%)  ours=80%+-13pp  t=5.65s  n=10
+opp_progress=0.8    opp_t=4.96  oppOK=50%  overtake=50%(live 50%)  ours=100%+-0pp  t=5.19s  n=10
+opp_progress=1.0    opp_t=5.06  oppOK=60%  overtake=30%(live 30%)  ours=80%+-13pp  t=5.20s  n=10
+opp_progress=1.5    opp_t=4.85  oppOK=60%  overtake=20%(live 20%)  ours=70%+-14pp  t=5.16s  n=10
+--- seed 1010 done (11/40) ---
+opp_progress=0.1    opp_t=7.42  oppOK=36%  overtake=36%(live 36%)  ours=64%+-15pp  t=5.58s  n=11
+opp_progress=0.2    opp_t=5.51  oppOK=27%  overtake=55%(live 55%)  ours=82%+-12pp  t=5.38s  n=11
+opp_progress=0.4    opp_t=5.24  oppOK=18%  overtake=45%(live 45%)  ours=64%+-15pp  t=5.20s  n=11
+opp_progress=0.6    opp_t=5.51  oppOK=45%  overtake=45%(live 45%)  ours=73%+-13pp  t=5.65s  n=11
+opp_progress=0.8    opp_t=4.90  oppOK=55%  overtake=45%(live 45%)  ours=91%+-9pp  t=5.19s  n=11
+opp_progress=1.0    opp_t=4.99  oppOK=64%  overtake=27%(live 27%)  ours=82%+-12pp  t=5.19s  n=11
+opp_progress=1.5    opp_t=4.83  oppOK=64%  overtake=18%(live 18%)  ours=73%+-13pp  t=5.16s  n=11
+--- seed 1011 done (12/40) ---
+opp_progress=0.1    opp_t=7.42  oppOK=33%  overtake=33%(live 33%)  ours=58%+-14pp  t=5.58s  n=12
+opp_progress=0.2    opp_t=5.51  oppOK=25%  overtake=50%(live 50%)  ours=75%+-12pp  t=5.38s  n=12
+opp_progress=0.4    opp_t=5.24  oppOK=17%  overtake=42%(live 42%)  ours=58%+-14pp  t=5.20s  n=12
+opp_progress=0.6    opp_t=5.51  oppOK=42%  overtake=50%(live 50%)  ours=75%+-12pp  t=5.55s  n=12
+opp_progress=0.8    opp_t=4.90  oppOK=50%  overtake=42%(live 42%)  ours=83%+-11pp  t=5.19s  n=12
+opp_progress=1.0    opp_t=5.03  oppOK=67%  overtake=25%(live 25%)  ours=75%+-12pp  t=5.19s  n=12
+opp_progress=1.5    opp_t=4.83  oppOK=58%  overtake=17%(live 17%)  ours=67%+-14pp  t=5.16s  n=12
+--- seed 1012 done (13/40) ---
+opp_progress=0.1    opp_t=7.42  oppOK=31%  overtake=31%(live 31%)  ours=54%+-14pp  t=5.58s  n=13
+opp_progress=0.2    opp_t=5.43  oppOK=31%  overtake=46%(live 46%)  ours=77%+-12pp  t=5.39s  n=13
+opp_progress=0.4    opp_t=5.18  oppOK=23%  overtake=38%(live 38%)  ours=62%+-13pp  t=5.24s  n=13
+opp_progress=0.6    opp_t=5.40  oppOK=46%  overtake=46%(live 46%)  ours=77%+-12pp  t=5.53s  n=13
+opp_progress=0.8    opp_t=4.85  oppOK=54%  overtake=38%(live 38%)  ours=85%+-10pp  t=5.17s  n=13
+opp_progress=1.0    opp_t=5.03  oppOK=62%  overtake=23%(live 23%)  ours=69%+-13pp  t=5.19s  n=13
+opp_progress=1.5    opp_t=4.78  oppOK=62%  overtake=15%(live 15%)  ours=69%+-13pp  t=5.13s  n=13
+--- seed 1013 done (14/40) ---
+opp_progress=0.1    opp_t=7.42  oppOK=29%  overtake=29%(live 29%)  ours=50%+-13pp  t=5.58s  n=14
+opp_progress=0.2    opp_t=5.43  oppOK=29%  overtake=50%(live 50%)  ours=79%+-11pp  t=5.31s  n=14
+opp_progress=0.4    opp_t=5.18  oppOK=21%  overtake=43%(live 43%)  ours=64%+-13pp  t=5.18s  n=14
+opp_progress=0.6    opp_t=5.40  oppOK=43%  overtake=43%(live 43%)  ours=71%+-12pp  t=5.53s  n=14
+opp_progress=0.8    opp_t=4.78  oppOK=57%  overtake=36%(live 36%)  ours=86%+-9pp  t=5.13s  n=14
+opp_progress=1.0    opp_t=5.03  oppOK=57%  overtake=21%(live 21%)  ours=64%+-13pp  t=5.19s  n=14
+opp_progress=1.5    opp_t=4.72  oppOK=64%  overtake=14%(live 14%)  ours=71%+-12pp  t=5.09s  n=14
+--- seed 1014 done (15/40) ---
+opp_progress=0.1    opp_t=7.42  oppOK=27%  overtake=27%(live 27%)  ours=47%+-13pp  t=5.58s  n=15
+opp_progress=0.2    opp_t=5.43  oppOK=27%  overtake=47%(live 47%)  ours=73%+-11pp  t=5.31s  n=15
+opp_progress=0.4    opp_t=5.18  oppOK=20%  overtake=40%(live 40%)  ours=60%+-13pp  t=5.18s  n=15
+opp_progress=0.6    opp_t=5.29  oppOK=47%  overtake=40%(live 40%)  ours=73%+-11pp  t=5.49s  n=15
+opp_progress=0.8    opp_t=4.78  oppOK=53%  overtake=40%(live 40%)  ours=87%+-9pp  t=5.09s  n=15
+opp_progress=1.0    opp_t=4.99  oppOK=60%  overtake=20%(live 20%)  ours=67%+-12pp  t=5.18s  n=15
+opp_progress=1.5    opp_t=4.72  oppOK=60%  overtake=20%(live 20%)  ours=73%+-11pp  t=5.06s  n=15
+--- seed 1015 done (16/40) ---
+opp_progress=0.1    opp_t=7.42  oppOK=25%  overtake=31%(live 31%)  ours=50%+-12pp  t=5.47s  n=16
+opp_progress=0.2    opp_t=5.44  oppOK=25%  overtake=50%(live 50%)  ours=75%+-11pp  t=5.24s  n=16
+opp_progress=0.4    opp_t=5.18  oppOK=19%  overtake=44%(live 44%)  ours=62%+-12pp  t=5.11s  n=16
+opp_progress=0.6    opp_t=5.29  oppOK=44%  overtake=44%(live 44%)  ours=75%+-11pp  t=5.42s  n=16
+opp_progress=0.8    opp_t=4.78  oppOK=50%  overtake=44%(live 44%)  ours=88%+-8pp  t=5.05s  n=16
+opp_progress=1.0    opp_t=4.99  oppOK=56%  overtake=25%(live 25%)  ours=69%+-12pp  t=5.15s  n=16
+opp_progress=1.5    opp_t=4.72  oppOK=56%  overtake=25%(live 25%)  ours=75%+-11pp  t=5.02s  n=16
+--- seed 1016 done (17/40) ---
+opp_progress=0.1    opp_t=7.10  oppOK=29%  overtake=29%(live 29%)  ours=53%+-12pp  t=5.55s  n=17
+opp_progress=0.2    opp_t=5.49  oppOK=29%  overtake=47%(live 47%)  ours=76%+-10pp  t=5.31s  n=17
+opp_progress=0.4    opp_t=5.25  oppOK=24%  overtake=41%(live 41%)  ours=65%+-12pp  t=5.18s  n=17
+opp_progress=0.6    opp_t=5.31  oppOK=47%  overtake=41%(live 41%)  ours=76%+-10pp  t=5.46s  n=17
+opp_progress=0.8    opp_t=4.82  oppOK=53%  overtake=41%(live 41%)  ours=88%+-8pp  t=5.08s  n=17
+opp_progress=1.0    opp_t=5.01  oppOK=59%  overtake=24%(live 24%)  ours=71%+-11pp  t=5.19s  n=17
+opp_progress=1.5    opp_t=4.74  oppOK=59%  overtake=24%(live 24%)  ours=76%+-10pp  t=5.03s  n=17
+--- seed 1017 done (18/40) ---
+opp_progress=0.1    opp_t=7.10  oppOK=28%  overtake=33%(live 28%)  ours=56%+-12pp  t=5.45s  n=18
+opp_progress=0.2    opp_t=5.49  oppOK=28%  overtake=50%(live 44%)  ours=78%+-10pp  t=5.29s  n=18
+opp_progress=0.4    opp_t=5.25  oppOK=22%  overtake=44%(live 39%)  ours=67%+-11pp  t=5.16s  n=18
+opp_progress=0.6    opp_t=5.31  oppOK=44%  overtake=44%(live 39%)  ours=78%+-10pp  t=5.42s  n=18
+opp_progress=0.8    opp_t=4.82  oppOK=50%  overtake=44%(live 39%)  ours=89%+-7pp  t=5.06s  n=18
+opp_progress=1.0    opp_t=5.01  oppOK=56%  overtake=28%(live 22%)  ours=72%+-11pp  t=5.17s  n=18
+opp_progress=1.5    opp_t=4.74  oppOK=56%  overtake=22%(live 22%)  ours=72%+-11pp  t=5.03s  n=18
+--- seed 1018 done (19/40) ---
+opp_progress=0.1    opp_t=6.94  oppOK=32%  overtake=32%(live 26%)  ours=58%+-11pp  t=5.55s  n=19
+opp_progress=0.2    opp_t=5.49  oppOK=26%  overtake=47%(live 42%)  ours=74%+-10pp  t=5.29s  n=19
+opp_progress=0.4    opp_t=5.25  oppOK=21%  overtake=42%(live 37%)  ours=63%+-11pp  t=5.16s  n=19
+opp_progress=0.6    opp_t=5.26  oppOK=47%  overtake=42%(live 37%)  ours=79%+-9pp  t=5.40s  n=19
+opp_progress=0.8    opp_t=4.85  oppOK=53%  overtake=42%(live 37%)  ours=89%+-7pp  t=5.08s  n=19
+opp_progress=1.0    opp_t=5.01  oppOK=53%  overtake=26%(live 21%)  ours=68%+-11pp  t=5.17s  n=19
+opp_progress=1.5    opp_t=4.73  oppOK=58%  overtake=21%(live 21%)  ours=74%+-10pp  t=5.06s  n=19
+--- seed 1019 done (20/40) ---
+opp_progress=0.1    opp_t=6.94  oppOK=30%  overtake=30%(live 25%)  ours=55%+-11pp  t=5.55s  n=20
+opp_progress=0.2    opp_t=5.45  oppOK=30%  overtake=45%(live 40%)  ours=75%+-10pp  t=5.31s  n=20
+opp_progress=0.4    opp_t=5.24  oppOK=25%  overtake=40%(live 35%)  ours=65%+-11pp  t=5.20s  n=20
+opp_progress=0.6    opp_t=5.17  oppOK=50%  overtake=40%(live 35%)  ours=80%+-9pp  t=5.40s  n=20
+opp_progress=0.8    opp_t=4.85  oppOK=50%  overtake=40%(live 35%)  ours=85%+-8pp  t=5.08s  n=20
+opp_progress=1.0    opp_t=5.01  oppOK=50%  overtake=25%(live 20%)  ours=65%+-11pp  t=5.17s  n=20
+opp_progress=1.5    opp_t=4.72  oppOK=60%  overtake=20%(live 20%)  ours=75%+-10pp  t=5.06s  n=20
+--- seed 1020 done (21/40) ---
+opp_progress=0.1    opp_t=6.94  oppOK=29%  overtake=33%(live 29%)  ours=57%+-11pp  t=5.51s  n=21
+opp_progress=0.2    opp_t=5.97  oppOK=33%  overtake=43%(live 38%)  ours=71%+-10pp  t=5.31s  n=21
+opp_progress=0.4    opp_t=5.24  oppOK=24%  overtake=43%(live 38%)  ours=67%+-10pp  t=5.16s  n=21
+opp_progress=0.6    opp_t=5.17  oppOK=48%  overtake=43%(live 38%)  ours=81%+-9pp  t=5.36s  n=21
+opp_progress=0.8    opp_t=4.88  oppOK=52%  overtake=38%(live 33%)  ours=86%+-8pp  t=5.11s  n=21
+opp_progress=1.0    opp_t=4.99  oppOK=52%  overtake=24%(live 19%)  ours=67%+-10pp  t=5.17s  n=21
+opp_progress=1.5    opp_t=4.74  oppOK=62%  overtake=19%(live 19%)  ours=76%+-9pp  t=5.09s  n=21
+--- seed 1021 done (22/40) ---
+opp_progress=0.1    opp_t=6.71  oppOK=32%  overtake=32%(live 27%)  ours=59%+-10pp  t=5.52s  n=22
+opp_progress=0.2    opp_t=5.97  oppOK=32%  overtake=41%(live 36%)  ours=68%+-10pp  t=5.31s  n=22
+opp_progress=0.4    opp_t=5.21  oppOK=27%  overtake=41%(live 36%)  ours=68%+-10pp  t=5.17s  n=22
+opp_progress=0.6    opp_t=5.15  oppOK=50%  overtake=41%(live 36%)  ours=82%+-8pp  t=5.36s  n=22
+opp_progress=0.8    opp_t=4.87  oppOK=55%  overtake=36%(live 32%)  ours=86%+-7pp  t=5.11s  n=22
+opp_progress=1.0    opp_t=4.97  oppOK=55%  overtake=23%(live 18%)  ours=68%+-10pp  t=5.17s  n=22
+opp_progress=1.5    opp_t=4.74  oppOK=64%  overtake=18%(live 18%)  ours=77%+-9pp  t=5.10s  n=22
+--- seed 1022 done (23/40) ---
+opp_progress=0.1    opp_t=6.71  oppOK=30%  overtake=35%(live 30%)  ours=61%+-10pp  t=5.50s  n=23
+opp_progress=0.2    opp_t=6.56  oppOK=35%  overtake=39%(live 35%)  ours=65%+-10pp  t=5.31s  n=23
+opp_progress=0.4    opp_t=5.21  oppOK=26%  overtake=43%(live 39%)  ours=70%+-10pp  t=5.15s  n=23
+opp_progress=0.6    opp_t=5.15  oppOK=48%  overtake=39%(live 35%)  ours=78%+-9pp  t=5.36s  n=23
+opp_progress=0.8    opp_t=4.86  oppOK=57%  overtake=35%(live 30%)  ours=87%+-7pp  t=5.11s  n=23
+opp_progress=1.0    opp_t=4.97  oppOK=52%  overtake=26%(live 22%)  ours=70%+-10pp  t=5.15s  n=23
+opp_progress=1.5    opp_t=4.74  oppOK=65%  overtake=17%(live 17%)  ours=78%+-9pp  t=5.12s  n=23
+--- seed 1023 done (24/40) ---
+opp_progress=0.1    opp_t=6.57  oppOK=33%  overtake=33%(live 29%)  ours=62%+-10pp  t=5.53s  n=24
+opp_progress=0.2    opp_t=6.40  oppOK=38%  overtake=38%(live 33%)  ours=67%+-10pp  t=5.32s  n=24
+opp_progress=0.4    opp_t=5.19  oppOK=29%  overtake=42%(live 38%)  ours=71%+-9pp  t=5.17s  n=24
+opp_progress=0.6    opp_t=5.15  oppOK=46%  overtake=38%(live 33%)  ours=75%+-9pp  t=5.36s  n=24
+opp_progress=0.8    opp_t=4.87  oppOK=58%  overtake=33%(live 29%)  ours=88%+-7pp  t=5.12s  n=24
+opp_progress=1.0    opp_t=4.94  oppOK=54%  overtake=25%(live 21%)  ours=71%+-9pp  t=5.14s  n=24
+opp_progress=1.5    opp_t=4.72  oppOK=67%  overtake=17%(live 17%)  ours=79%+-8pp  t=5.10s  n=24
+--- seed 1024 done (25/40) ---
+opp_progress=0.1    opp_t=6.57  oppOK=32%  overtake=36%(live 32%)  ours=64%+-10pp  t=5.49s  n=25
+opp_progress=0.2    opp_t=6.40  oppOK=36%  overtake=40%(live 36%)  ours=68%+-9pp  t=5.29s  n=25
+opp_progress=0.4    opp_t=5.21  oppOK=32%  overtake=40%(live 36%)  ours=72%+-9pp  t=5.20s  n=25
+opp_progress=0.6    opp_t=5.12  oppOK=48%  overtake=36%(live 32%)  ours=76%+-9pp  t=5.34s  n=25
+opp_progress=0.8    opp_t=4.86  oppOK=60%  overtake=32%(live 28%)  ours=88%+-6pp  t=5.12s  n=25
+opp_progress=1.0    opp_t=4.93  oppOK=56%  overtake=24%(live 20%)  ours=72%+-9pp  t=5.14s  n=25
+opp_progress=1.5    opp_t=4.70  oppOK=68%  overtake=16%(live 16%)  ours=80%+-8pp  t=5.10s  n=25
+--- seed 1025 done (26/40) ---
+opp_progress=0.1    opp_t=6.41  oppOK=35%  overtake=35%(live 31%)  ours=65%+-9pp  t=5.49s  n=26
+opp_progress=0.2    opp_t=6.40  oppOK=35%  overtake=42%(live 38%)  ours=69%+-9pp  t=5.29s  n=26
+opp_progress=0.4    opp_t=5.21  oppOK=31%  overtake=38%(live 35%)  ours=69%+-9pp  t=5.20s  n=26
+opp_progress=0.6    opp_t=5.10  oppOK=50%  overtake=35%(live 31%)  ours=77%+-8pp  t=5.34s  n=26
+opp_progress=0.8    opp_t=4.87  oppOK=62%  overtake=31%(live 27%)  ours=88%+-6pp  t=5.14s  n=26
+opp_progress=1.0    opp_t=4.90  oppOK=58%  overtake=23%(live 19%)  ours=73%+-9pp  t=5.15s  n=26
+opp_progress=1.5    opp_t=4.70  oppOK=65%  overtake=19%(live 15%)  ours=81%+-8pp  t=5.09s  n=26
+--- seed 1026 done (27/40) ---
+opp_progress=0.1    opp_t=6.34  oppOK=37%  overtake=33%(live 30%)  ours=67%+-9pp  t=5.52s  n=27
+opp_progress=0.2    opp_t=6.48  oppOK=37%  overtake=41%(live 37%)  ours=67%+-9pp  t=5.29s  n=27
+opp_progress=0.4    opp_t=5.42  oppOK=33%  overtake=37%(live 33%)  ours=67%+-9pp  t=5.20s  n=27
+opp_progress=0.6    opp_t=5.10  oppOK=52%  overtake=33%(live 30%)  ours=78%+-8pp  t=5.35s  n=27
+opp_progress=0.8    opp_t=4.90  oppOK=63%  overtake=30%(live 26%)  ours=89%+-6pp  t=5.17s  n=27
+opp_progress=1.0    opp_t=4.90  oppOK=56%  overtake=22%(live 19%)  ours=70%+-9pp  t=5.15s  n=27
+opp_progress=1.5    opp_t=4.70  oppOK=63%  overtake=22%(live 15%)  ours=81%+-7pp  t=5.12s  n=27
+--- seed 1027 done (28/40) ---
+opp_progress=0.1    opp_t=7.07  oppOK=39%  overtake=32%(live 29%)  ours=64%+-9pp  t=5.52s  n=28
+opp_progress=0.2    opp_t=6.79  oppOK=39%  overtake=39%(live 36%)  ours=64%+-9pp  t=5.29s  n=28
+opp_progress=0.4    opp_t=5.62  oppOK=36%  overtake=36%(live 32%)  ours=64%+-9pp  t=5.20s  n=28
+opp_progress=0.6    opp_t=5.10  oppOK=50%  overtake=32%(live 29%)  ours=75%+-8pp  t=5.35s  n=28
+opp_progress=0.8    opp_t=5.00  oppOK=64%  overtake=29%(live 25%)  ours=86%+-7pp  t=5.17s  n=28
+opp_progress=1.0    opp_t=4.94  oppOK=57%  overtake=21%(live 18%)  ours=68%+-9pp  t=5.15s  n=28
+opp_progress=1.5    opp_t=4.70  oppOK=61%  overtake=25%(live 14%)  ours=82%+-7pp  t=5.13s  n=28
+--- seed 1028 done (29/40) ---
+opp_progress=0.1    opp_t=7.07  oppOK=38%  overtake=34%(live 31%)  ours=66%+-9pp  t=5.50s  n=29
+opp_progress=0.2    opp_t=6.79  oppOK=38%  overtake=41%(live 38%)  ours=66%+-9pp  t=5.25s  n=29
+opp_progress=0.4    opp_t=5.60  oppOK=38%  overtake=34%(live 31%)  ours=66%+-9pp  t=5.23s  n=29
+opp_progress=0.6    opp_t=5.10  oppOK=48%  overtake=34%(live 31%)  ours=76%+-8pp  t=5.33s  n=29
+opp_progress=0.8    opp_t=5.00  oppOK=62%  overtake=28%(live 24%)  ours=83%+-7pp  t=5.17s  n=29
+opp_progress=1.0    opp_t=4.91  oppOK=59%  overtake=21%(live 17%)  ours=69%+-9pp  t=5.13s  n=29
+opp_progress=1.5    opp_t=4.69  oppOK=62%  overtake=24%(live 14%)  ours=83%+-7pp  t=5.11s  n=29
+--- seed 1029 done (30/40) ---
+opp_progress=0.1    opp_t=6.97  oppOK=40%  overtake=33%(live 30%)  ours=67%+-9pp  t=5.54s  n=30
+opp_progress=0.2    opp_t=6.69  oppOK=40%  overtake=40%(live 37%)  ours=67%+-9pp  t=5.30s  n=30
+opp_progress=0.4    opp_t=5.59  oppOK=40%  overtake=33%(live 30%)  ours=67%+-9pp  t=5.27s  n=30
+opp_progress=0.6    opp_t=5.12  oppOK=50%  overtake=33%(live 30%)  ours=77%+-8pp  t=5.35s  n=30
+opp_progress=0.8    opp_t=5.00  oppOK=60%  overtake=30%(live 27%)  ours=83%+-7pp  t=5.20s  n=30
+opp_progress=1.0    opp_t=4.99  oppOK=60%  overtake=20%(live 17%)  ours=70%+-8pp  t=5.26s  n=30
+opp_progress=1.5    opp_t=4.81  oppOK=63%  overtake=23%(live 13%)  ours=80%+-7pp  t=5.11s  n=30
+--- seed 1030 done (31/40) ---
+opp_progress=0.1    opp_t=6.97  oppOK=39%  overtake=32%(live 29%)  ours=65%+-9pp  t=5.54s  n=31
+opp_progress=0.2    opp_t=6.58  oppOK=42%  overtake=39%(live 35%)  ours=68%+-8pp  t=5.31s  n=31
+opp_progress=0.4    opp_t=5.77  oppOK=42%  overtake=32%(live 29%)  ours=65%+-9pp  t=5.27s  n=31
+opp_progress=0.6    opp_t=5.12  oppOK=48%  overtake=35%(live 32%)  ours=77%+-8pp  t=5.32s  n=31
+opp_progress=0.8    opp_t=5.00  oppOK=58%  overtake=32%(live 26%)  ours=84%+-7pp  t=5.18s  n=31
+opp_progress=1.0    opp_t=5.02  oppOK=61%  overtake=19%(live 16%)  ours=68%+-8pp  t=5.26s  n=31
+opp_progress=1.5    opp_t=4.81  oppOK=61%  overtake=23%(live 13%)  ours=77%+-8pp  t=5.11s  n=31
+--- seed 1031 done (32/40) ---
+opp_progress=0.1    opp_t=6.97  oppOK=38%  overtake=31%(live 28%)  ours=62%+-9pp  t=5.54s  n=32
+opp_progress=0.2    opp_t=6.58  oppOK=41%  overtake=41%(live 38%)  ours=69%+-8pp  t=5.38s  n=32
+opp_progress=0.4    opp_t=5.79  oppOK=44%  overtake=31%(live 28%)  ours=66%+-8pp  t=5.32s  n=32
+opp_progress=0.6    opp_t=5.15  oppOK=50%  overtake=34%(live 31%)  ours=78%+-7pp  t=5.36s  n=32
+opp_progress=0.8    opp_t=5.00  oppOK=59%  overtake=31%(live 25%)  ours=84%+-6pp  t=5.19s  n=32
+opp_progress=1.0    opp_t=5.00  oppOK=62%  overtake=19%(live 16%)  ours=69%+-8pp  t=5.25s  n=32
+opp_progress=1.5    opp_t=4.79  oppOK=62%  overtake=22%(live 12%)  ours=78%+-7pp  t=5.11s  n=32
+--- seed 1032 done (33/40) ---
+opp_progress=0.1    opp_t=6.97  oppOK=36%  overtake=30%(live 27%)  ours=61%+-9pp  t=5.54s  n=33
+opp_progress=0.2    opp_t=6.84  oppOK=42%  overtake=39%(live 36%)  ours=67%+-8pp  t=5.38s  n=33
+opp_progress=0.4    opp_t=5.89  oppOK=45%  overtake=30%(live 27%)  ours=64%+-8pp  t=5.32s  n=33
+opp_progress=0.6    opp_t=5.15  oppOK=48%  overtake=33%(live 30%)  ours=76%+-7pp  t=5.36s  n=33
+opp_progress=0.8    opp_t=5.00  oppOK=58%  overtake=30%(live 24%)  ours=82%+-7pp  t=5.19s  n=33
+opp_progress=1.0    opp_t=5.00  oppOK=61%  overtake=21%(live 18%)  ours=70%+-8pp  t=5.23s  n=33
+opp_progress=1.5    opp_t=4.79  oppOK=61%  overtake=21%(live 12%)  ours=76%+-7pp  t=5.11s  n=33
+--- seed 1033 done (34/40) ---
+opp_progress=0.1    opp_t=6.83  oppOK=38%  overtake=29%(live 26%)  ours=62%+-8pp  t=5.54s  n=34
+opp_progress=0.2    opp_t=6.84  oppOK=41%  overtake=41%(live 38%)  ours=68%+-8pp  t=5.37s  n=34
+opp_progress=0.4    opp_t=5.89  oppOK=44%  overtake=32%(live 29%)  ours=65%+-8pp  t=5.30s  n=34
+opp_progress=0.6    opp_t=5.14  oppOK=50%  overtake=32%(live 29%)  ours=76%+-7pp  t=5.36s  n=34
+opp_progress=0.8    opp_t=5.00  oppOK=59%  overtake=29%(live 24%)  ours=82%+-7pp  t=5.21s  n=34
+opp_progress=1.0    opp_t=4.99  oppOK=62%  overtake=21%(live 18%)  ours=71%+-8pp  t=5.23s  n=34
+opp_progress=1.5    opp_t=4.79  oppOK=62%  overtake=21%(live 12%)  ours=76%+-7pp  t=5.12s  n=34
+--- seed 1034 done (35/40) ---
+opp_progress=0.1    opp_t=6.83  oppOK=37%  overtake=31%(live 29%)  ours=63%+-8pp  t=5.50s  n=35
+opp_progress=0.2    opp_t=6.84  oppOK=40%  overtake=43%(live 40%)  ours=69%+-8pp  t=5.33s  n=35
+opp_progress=0.4    opp_t=5.83  oppOK=46%  overtake=31%(live 29%)  ours=66%+-8pp  t=5.30s  n=35
+opp_progress=0.6    opp_t=5.17  oppOK=51%  overtake=31%(live 29%)  ours=77%+-7pp  t=5.39s  n=35
+opp_progress=0.8    opp_t=5.00  oppOK=57%  overtake=31%(live 26%)  ours=83%+-6pp  t=5.22s  n=35
+opp_progress=1.0    opp_t=4.98  oppOK=63%  overtake=20%(live 17%)  ours=71%+-8pp  t=5.22s  n=35
+opp_progress=1.5    opp_t=4.79  oppOK=60%  overtake=23%(live 11%)  ours=77%+-7pp  t=5.11s  n=35
+--- seed 1035 done (36/40) ---
+opp_progress=0.1    opp_t=6.83  oppOK=36%  overtake=33%(live 31%)  ours=64%+-8pp  t=5.46s  n=36
+opp_progress=0.2    opp_t=6.84  oppOK=39%  overtake=44%(live 42%)  ours=69%+-8pp  t=5.31s  n=36
+opp_progress=0.4    opp_t=5.83  oppOK=44%  overtake=31%(live 28%)  ours=64%+-8pp  t=5.30s  n=36
+opp_progress=0.6    opp_t=5.17  oppOK=50%  overtake=33%(live 31%)  ours=78%+-7pp  t=5.35s  n=36
+opp_progress=0.8    opp_t=5.00  oppOK=58%  overtake=31%(live 25%)  ours=83%+-6pp  t=5.23s  n=36
+opp_progress=1.0    opp_t=4.98  oppOK=64%  overtake=19%(live 17%)  ours=72%+-7pp  t=5.22s  n=36
+opp_progress=1.5    opp_t=4.79  oppOK=58%  overtake=25%(live 11%)  ours=78%+-7pp  t=5.11s  n=36
+--- seed 1036 done (37/40) ---
+opp_progress=0.1    opp_t=6.83  oppOK=35%  overtake=35%(live 32%)  ours=65%+-8pp  t=5.43s  n=37
+opp_progress=0.2    opp_t=6.84  oppOK=38%  overtake=46%(live 43%)  ours=70%+-8pp  t=5.29s  n=37
+opp_progress=0.4    opp_t=5.83  oppOK=43%  overtake=32%(live 30%)  ours=65%+-8pp  t=5.27s  n=37
+opp_progress=0.6    opp_t=5.17  oppOK=49%  overtake=35%(live 32%)  ours=78%+-7pp  t=5.33s  n=37
+opp_progress=0.8    opp_t=5.00  oppOK=57%  overtake=32%(live 27%)  ours=84%+-6pp  t=5.20s  n=37
+opp_progress=1.0    opp_t=4.99  oppOK=65%  overtake=19%(live 16%)  ours=70%+-8pp  t=5.22s  n=37
+opp_progress=1.5    opp_t=4.79  oppOK=59%  overtake=24%(live 11%)  ours=76%+-7pp  t=5.11s  n=37
+--- seed 1037 done (38/40) ---
+opp_progress=0.1    opp_t=6.73  oppOK=37%  overtake=34%(live 32%)  ours=66%+-8pp  t=5.44s  n=38
+opp_progress=0.2    opp_t=6.84  oppOK=37%  overtake=45%(live 42%)  ours=68%+-8pp  t=5.29s  n=38
+opp_progress=0.4    opp_t=5.80  oppOK=45%  overtake=32%(live 29%)  ours=66%+-8pp  t=5.30s  n=38
+opp_progress=0.6    opp_t=5.18  oppOK=50%  overtake=34%(live 32%)  ours=79%+-7pp  t=5.34s  n=38
+opp_progress=0.8    opp_t=5.00  oppOK=55%  overtake=32%(live 26%)  ours=82%+-6pp  t=5.20s  n=38
+opp_progress=1.0    opp_t=4.98  oppOK=66%  overtake=18%(live 16%)  ours=71%+-7pp  t=5.25s  n=38
+opp_progress=1.5    opp_t=4.79  oppOK=61%  overtake=24%(live 11%)  ours=76%+-7pp  t=5.13s  n=38
+--- seed 1038 done (39/40) ---
+opp_progress=0.1    opp_t=6.73  oppOK=36%  overtake=36%(live 33%)  ours=67%+-8pp  t=5.42s  n=39
+opp_progress=0.2    opp_t=6.84  oppOK=36%  overtake=44%(live 41%)  ours=67%+-8pp  t=5.29s  n=39
+opp_progress=0.4    opp_t=5.78  oppOK=46%  overtake=31%(live 28%)  ours=67%+-8pp  t=5.32s  n=39
+opp_progress=0.6    opp_t=5.20  oppOK=51%  overtake=33%(live 31%)  ours=79%+-6pp  t=5.36s  n=39
+opp_progress=0.8    opp_t=5.03  oppOK=56%  overtake=31%(live 26%)  ours=82%+-6pp  t=5.24s  n=39
+opp_progress=1.0    opp_t=4.98  oppOK=67%  overtake=18%(live 15%)  ours=72%+-7pp  t=5.25s  n=39
+opp_progress=1.5    opp_t=4.78  oppOK=62%  overtake=23%(live 10%)  ours=77%+-7pp  t=5.14s  n=39
+--- seed 1039 done (40/40) ---
+opp_progress=0.1    opp_t=6.73  oppOK=35%  overtake=38%(live 35%)  ours=68%+-7pp  t=5.40s  n=40
+opp_progress=0.2    opp_t=6.84  oppOK=35%  overtake=42%(live 40%)  ours=65%+-8pp  t=5.29s  n=40
+opp_progress=0.4    opp_t=5.76  oppOK=48%  overtake=30%(live 28%)  ours=68%+-7pp  t=5.34s  n=40
+opp_progress=0.6    opp_t=5.18  oppOK=52%  overtake=32%(live 30%)  ours=80%+-6pp  t=5.36s  n=40
+opp_progress=0.8    opp_t=5.01  oppOK=58%  overtake=30%(live 25%)  ours=80%+-6pp  t=5.24s  n=40
+opp_progress=1.0    opp_t=4.98  oppOK=65%  overtake=18%(live 15%)  ours=70%+-7pp  t=5.25s  n=40
+opp_progress=1.5    opp_t=4.78  oppOK=60%  overtake=25%(live 12%)  ours=78%+-7pp  t=5.13s  n=40
+
+summary -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_opp_progress_2026-08-05_20-52-17.csv
+per-run  -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_opp_progress_2026-08-05_20-52-17_runs.csv
+0
+=== DONE parallel_gt rc=0 2026-08-06T00:28:50+02:00 ===

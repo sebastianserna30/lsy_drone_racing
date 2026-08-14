@@ -88,6 +88,7 @@ def simulate(
     action_shape = env.action_space.shape[1]
     fps = 60
 
+    ep_times = []  # Per-run finish times for each drone (np.nan = did not finish)
     for _ in range(n_runs):  # Run n_runs episodes with the controllers
         obs, info = env.reset()
 
@@ -150,9 +151,11 @@ def simulate(
             ctrl.episode_callback()  # Update the controller internal state and models.
             ctrl.episode_reset()
         log_episode_stats(obs, config, finish_times, controller_names)
+        ep_times.append(finish_times.copy())
 
     # Close the environment
     env.close()
+    return ep_times
 
 
 def log_episode_stats(

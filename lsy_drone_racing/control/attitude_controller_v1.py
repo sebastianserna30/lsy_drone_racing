@@ -41,12 +41,18 @@ class AttitudeController_1(Controller):
         gate_out_offset_next = 0.10  # metres along vector from previous waypoint
 
         dip_degree = 120
+        no_dip = True
 
         point_at_obstacle = [True, True, True, False]
         obstacle_ind = np.array([1, 0, 3, 0])
-        offset_at_obstacle = np.array(
-            [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
-        )
+        if no_dip:
+            offset_at_obstacle = np.array(
+                [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, -0.2, 0.2], [0, 0, 0]]
+            )
+        else:
+            offset_at_obstacle = np.array(
+                [[0.17, -0.17, 0.1], [0.2, -0.2, -0.1], [0.1, 0.2, 0.2], [0, 0, 0]]
+            )
 
         waypoints = [self._start_pos]
 
@@ -85,7 +91,7 @@ class AttitudeController_1(Controller):
             add_normal_out = gate_out_offset - length_normal_out
 
             entry = pos - gate_in_dir_vec + add_normal_in * normal
-            if theta_dec < dip_degree:
+            if no_dip or theta_dec < dip_degree:
                 exit_ = pos + gate_out_dir_vec + add_normal_out * normal
             else:
                 # alternative computation since distance is opposide direction if theta_dec>90
@@ -95,6 +101,16 @@ class AttitudeController_1(Controller):
             waypoints.append(entry)
             waypoints.append(pos)
             waypoints.append(exit_)
+
+            if no_dip and i == 2:
+                #fly around 3. gate
+
+                side_axis = R.from_quat(quat).apply([0.0, 1.0, 0.0])
+
+                fly_araound = pos.copy() + 0.6 * side_axis
+                waypoints.append(fly_araound)
+
+            
 
             if point_at_obstacle[i]:
                 obs_pos = obs["obstacles_pos"][obstacle_ind[i]].copy()
@@ -108,25 +124,9 @@ class AttitudeController_1(Controller):
 
         self._waypoints = waypoints
 
-    def create_spline_old(self):
-        """Create spline interpolation for waypoints."""
-        self._t_total = 10  # s
-        t = np.linspace(0, self._t_total, len(self._waypoints))
-
-        cubic_spline = True
-        if cubic_spline:
-            self._des_pos_spline = CubicSpline(t, self._waypoints)
-            self._des_vel_spline = self._des_pos_spline.derivative()
-        else:
-            # k=3 → cubic B-spline
-            bspline = make_interp_spline(t, self._waypoints, k=3)
-            self._des_pos_spline = bspline
-            self._des_vel_spline = bspline.derivative(1)
 
     def create_spline(self):
         """Create spline interpolation for waypoints."""
-        self._t_total = 7.8  # s
-
         # Distance-based timing
         distances = np.linalg.norm(np.diff(self._waypoints, axis=0), axis=1)
         cumulative_dist = np.insert(np.cumsum(distances), 0, 0)
@@ -186,8 +186,14 @@ class AttitudeController_1(Controller):
 
         self._start_pos = obs["pos"].copy()  # start at current drone position
 
+        self._t_total = config.controller.attitude["t_total"]
+
+
         self.create_waypoints(obs)
         self.create_spline()
+
+        self._last_gates_pos =  obs["gates_pos"].copy()
+        self._last_gates_quat = obs["gates_quat"].copy()
 
         self._tick = 0
         self._finished = False
@@ -209,10 +215,6 @@ class AttitudeController_1(Controller):
         t = min(self._tick / self._freq, self._t_total)
         if t >= self._t_total:  # Maximum duration reached
             self._finished = True
-
-        # Update splines with current observations
-        self.create_waypoints(obs)
-        self.create_spline()
 
         des_pos = self._des_pos_spline(t)
         des_vel = self._des_vel_spline(t)
@@ -255,18 +257,31 @@ class AttitudeController_1(Controller):
 
     def step_callback(
         self,
-        action: NDArray[np.floating],
-        obs: dict[str, NDArray[np.floating]],
-        reward: float,
-        terminated: bool,
-        truncated: bool,
-        info: dict,
+        action: NDArray[np.floating] | None = None,
+        obs: dict[str, NDArray[np.floating]] | None = None,
+        reward: float | None = None,
+        terminated: bool | None = None,
+        truncated: bool | None = None,
+        info: dict | None = None,
     ) -> bool:
         """Increment the tick counter.
 
         Returns:
             True if the controller is finished, False otherwise.
         """
+        gates_changed = (
+            not np.allclose(obs["gates_pos"], self._last_gates_pos)
+            or not np.allclose(obs["gates_quat"], self._last_gates_quat)
+        )
+
+        if gates_changed:
+            # Update splines with current observations
+            self.create_waypoints(obs)
+            self.create_spline()
+
+            self._last_gates_pos = obs["gates_pos"].copy()
+            self._last_gates_quat = obs["gates_quat"].copy()
+
         self._tick += 1
         return self._finished
 
@@ -280,6 +295,6 @@ class AttitudeController_1(Controller):
         setpoint = self._des_pos_spline(self._tick / self._freq).reshape(1, -1)
         draw_points(sim, setpoint, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)
         trajectory = self._des_pos_spline(np.linspace(0, self._t_total, 100))
-        draw_line(sim, trajectory, rgba=(0.0, 1.0, 0.0, 1.0))
+        draw_line(sim, trajectory, rgba=(0.7, 0.7, 0.7, 1.0))
 
         draw_points(sim, self._waypoints, rgba=(0.0, 0.0, 1.0, 1.0), size=0.03)

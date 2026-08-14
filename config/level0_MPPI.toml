@@ -1,56 +1,58 @@
-# Level 2
+# Level 0
 
-# | Evaluation Scenario | Randomized Inertial Properties | Randomized Obstacles, Gates | Randomized Tracks | Notes                 |
-# | :-----------------: | :----------------------------: | :-------------------------: | :---------------: | :-------------------: |
-# | `level2.toml`       | *Yes*                          | *Yes*                       | *No*              | Learning, re-planning |
+# | Evaluation Scenario | Randomized Inertial Properties | Randomized Obstacles, Gates | Randomized Tracks | Notes             |
+# | :-----------------: | :----------------------------: | :-------------------------: | :---------------: | :---------------: |
+# | `level0.toml`       | *No*                           | *No*                        | *No*              | Perfect knowledge |
 [controller]
 file = "trajectory_mppi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
+
 
 [controller.mppi] # MPPI parameters
 N = 25                     # rollout horizon in steps
-T = 0.5                    # horizon duration (s); dt = T / N, and N / T is the rollout sim freq
-n_samples = 1000           # total rollouts per step; must be divisible by K
-noise_sigma = 0.01         # initial sampling std
+T = 0.5                    # seconds, control horizon duration. Note that dt = T / horizon
+n_samples = 5000           # total rollouts per step; must be divisible by K
+noise_sigma = 0.01         # Initial noise std
 temperature = 0.25         # MPPI softmax temperature
-elite_percentage = 0.01    # fraction of samples averaged per mode, in [0,1]
-beta = 0.6                 # noise smoothing along the horizon, in [0,1]
-alpha = 0.1                # weight of the new variance in the sigma update
+elite_percentage = 0.01    # Top percent for averaging in [0,1]
+beta = 0.6                 # Noise smoothing in [0,1] (no smoothing to max smoothing)
+alpha = 0.1                # weighted variance update weight
 min_variance = 0.02
-K = 5                      # number of modes (means)
-action_ema = 0.4           # EMA blend on the executed action: ema * new + (1-ema) * prev
+K = 5                      # means
+action_ema = 0.4           # EMA blend on executed action: ema * new + (1-ema) * prev
 agents = []                # per-agent overrides; empty means every agent shares the values above
 
 # MPCC progress channel: the reference is keyed on arc length, and each rollout advances
 # its own theta by a sampled v_theta (the 5th control channel).
 v_theta_init = 2.0         # nominal forward progress speed (m/s) ~ path_length / t_total
 v_theta_max = 6.0          # cap on progress speed
-v_theta_sigma = 0.5        # exploration noise on v_theta (m/s)
+v_theta_sigma = 0.6        # exploration noise on v_theta (m/s)
 
 [controller.mppi.cost] # ego cost weights
 # contour = off-path (perpendicular) error; high to thread gate centres cleanly
-contour = 40.0
+contour = 20.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
-lag = 800.0
+lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 2.0
-z = 80.0
-ang_vel = 0.0
-ang_acc = 0.0
-tilt = 1.0
-thrust = 1.0
-yaw = 2.0
-obstacle = 1000.0
-floor = 500.0
-floor_z = 0.1
+progress = 1.0
+z = 80.0                   # extra penalty for altitude error
+ang_vel = 0.0              # angular-velocity penalty (off)
+ang_acc = 0.0              # angular-acceleration penalty (off)
+tilt = 1.0                 # was 5.0; loosened to allow aggressive roll/pitch
+thrust = 1.0               # was 0.0; regularise toward hover thrust
+yaw = 2.0                  # was 0.0; added to stabilise yaw oscillation
+obstacle = 10000.0         # per-obstacle collision penalty
+floor = 500.0              # penalty weight for states below floor_z
+floor_z = 0.1              # height (m) below which the floor penalty applies
 
 [controller.mppi.opponent]
-model = "mppi"                 # mppi | spline_progress | const_vel
+model = "const_vel"                 # mppi | spline_progress | const_vel
 pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in spline_progress
 anchor_fwd = 0.1               # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally
 match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
-drone_exp = 2000.0             # weight of the smooth exponential collision cost
+drone_exp = 6                  # weight of smoth collision cost using exponent was 13
 # Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
 # velocity heading: being behind is costly, alongside is cheap -> sideways overtake.
 use_anisotropic = false        # elongate the keep-out along the opponent's heading
@@ -73,9 +75,9 @@ stale_inflate_rate = 1.0       # keep-out inflation per second of tracking stale
 stale_max = 0.5                # staleness cap (s) -> max inflation 1 + rate*cap
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 4.1
-curvature_weight = 2.0
-clearance = 0.22
+t_total = 6.0              # was 5.0; target matches PPO lap time (3.20s)
+curvature_weight = 2.0     # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
+clearance = 0.22           # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
 lut_samples = 1500
 
 [controller.mppi.geometry] # physical radii (m), moved here from [experiment.env]
@@ -115,7 +117,6 @@ distance = 5.0
 azimuth = 180.0
 elevation = -25.0
 lookat = [0.0, 0.0, 0.0]
-
 
 [env]
 id = "DroneRacing-v0"   # "DroneRacing-v0" for single races, "MultiDroneRacing-v0" for multi-drone races. Each environment also implements a vector-environment for faster training
@@ -177,48 +178,7 @@ fn = "uniform"
 minval = [-0.1, -0.1, -0.1]
 maxval = [0.1, 0.1, 0.1]
 
-[env.randomizations.drone_pos]
-fn = "uniform"
-[env.randomizations.drone_pos.kwargs]
-minval = [-0.1, -0.1, 0.0]
-maxval = [0.1, 0.1, 0.02]
-
-[env.randomizations.drone_rpy]
-fn = "uniform"
-[env.randomizations.drone_rpy.kwargs]
-minval = [-0.1, -0.1, -0.1]
-maxval = [0.1, 0.1, 0.1]
-
-[env.randomizations.drone_mass]
-fn = "uniform"
-[env.randomizations.drone_mass.kwargs]
-minval = -0.005
-maxval = 0.005
-
-[env.randomizations.drone_inertia]
-fn = "uniform"
-[env.randomizations.drone_inertia.kwargs]
-minval = [-0.000001, -0.000001, -0.000001]
-maxval = [0.000001, 0.000001, 0.000001]
-
-[env.randomizations.gate_pos]
-fn = "uniform"
-[env.randomizations.gate_pos.kwargs]
-minval = [-0.10, -0.10, -0.05]
-maxval = [0.10, 0.10, 0.05]
-
-[env.randomizations.gate_rpy]
-fn = "uniform"
-[env.randomizations.gate_rpy.kwargs]
-minval = [-0.03, -0.05, -0.10]
-maxval = [0.03, 0.05, 0.10]
-
-[env.randomizations.obstacle_pos]
-fn = "uniform"
-[env.randomizations.obstacle_pos.kwargs]
-minval = [-0.10, -0.10, -0.05]
-maxval = [0.10, 0.10, 0.05]
-
+#Everything for MPPI
 
 # [drone], [experiment] and [plot] removed: they were inherited from another framework. The
 # only keys anything read were the radii (now [controller.mppi.geometry]) and drone.model

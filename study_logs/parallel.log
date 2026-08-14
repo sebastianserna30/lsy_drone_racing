@@ -1,0 +1,13 @@
+/home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/.pixi/envs/gpu/lib/python3.13/site-packages/jax/_src/abstract_arrays.py:145: RuntimeWarning: overflow encountered in cast
+  return literals.TypedNdArray(np.asarray(x, dtype))
+progress=0.1    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=11.73s
+progress=0.2    opp_t=7.66  oppOK=88%  both=72%  overtake=0%  ours=85%+-6pp  t=9.50s
+progress=0.4    opp_t=7.66  oppOK=88%  both=68%  overtake=0%  ours=80%+-6pp  t=8.91s
+progress=0.6    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=8.61s
+progress=0.8    opp_t=7.66  oppOK=88%  both=68%  overtake=0%  ours=80%+-6pp  t=8.48s
+progress=1.0    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=82%+-6pp  t=8.39s
+progress=1.5    opp_t=7.66  oppOK=88%  both=70%  overtake=0%  ours=80%+-6pp  t=8.33s
+
+summary -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_progress_2026-08-05_04-55-24.csv
+per-run  -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_progress_2026-08-05_04-55-24_runs.csv
+0

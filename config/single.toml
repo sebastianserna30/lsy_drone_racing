@@ -1,64 +1,62 @@
-# Level 2
+# Deploy Multilevel
 
-# | Evaluation Scenario | Randomized Inertial Properties | Randomized Obstacles, Gates | Randomized Tracks | Notes                 |
-# | :-----------------: | :----------------------------: | :-------------------------: | :---------------: | :-------------------: |
-# | `level2.toml`       | *Yes*                          | *Yes*                       | *No*              | Learning, re-planning |
-[controller]
-file = "trajectory_mppi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+[controller]  # Add the controller files for each drone
+file = "trajectory_mppi.py"
+type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
 
 [controller.mppi] # MPPI parameters
-N = 25                     # rollout horizon in steps
-T = 0.5                    # horizon duration (s); dt = T / N, and N / T is the rollout sim freq
-n_samples = 1000           # total rollouts per step; must be divisible by K
-noise_sigma = 0.01         # initial sampling std
+N = 30                     # rollout horizon in steps
+T = 0.6                    # seconds, control horizon duration. Note that dt = T / horizon
+n_samples = 100000         # total rollouts per step; must be divisible by K
+noise_sigma = 0.01         # Initial noise std
 temperature = 0.25         # MPPI softmax temperature
-elite_percentage = 0.01    # fraction of samples averaged per mode, in [0,1]
-beta = 0.6                 # noise smoothing along the horizon, in [0,1]
-alpha = 0.1                # weight of the new variance in the sigma update
+elite_percentage = 0.01    # Top percent for averaging in [0,1]
+beta = 0.6                 # Noise smoothing in [0,1] (no smoothing to max smoothing)
+alpha = 0.1                # weighted variance update weight
 min_variance = 0.02
-K = 5                      # number of modes (means)
-action_ema = 0.4           # EMA blend on the executed action: ema * new + (1-ema) * prev
+K = 5                      # means
+action_ema = 0.4           # EMA blend on executed action: ema * new + (1-ema) * prev
 agents = []                # per-agent overrides; empty means every agent shares the values above
 
 # MPCC progress channel: the reference is keyed on arc length, and each rollout advances
 # its own theta by a sampled v_theta (the 5th control channel).
 v_theta_init = 2.0         # nominal forward progress speed (m/s) ~ path_length / t_total
 v_theta_max = 6.0          # cap on progress speed
-v_theta_sigma = 0.5        # exploration noise on v_theta (m/s)
+v_theta_sigma = 0.6        # exploration noise on v_theta (m/s)
 
 [controller.mppi.cost] # ego cost weights
 # contour = off-path (perpendicular) error; high to thread gate centres cleanly
-contour = 40.0
+contour = 20.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
-lag = 800.0
+lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 2.0
-z = 80.0
-ang_vel = 0.0
-ang_acc = 0.0
-tilt = 1.0
-thrust = 1.0
-yaw = 2.0
-obstacle = 1000.0
-floor = 500.0
-floor_z = 0.1
+progress = 1.0
+z = 80.0                   # extra penalty for altitude error
+ang_vel = 0.0              # angular-velocity penalty (off)
+ang_acc = 0.0              # angular-acceleration penalty (off)
+tilt = 1.0                 # was 5.0; loosened to allow aggressive roll/pitch
+thrust = 1.0               # was 0.0; regularise toward hover thrust
+yaw = 2.0                  # was 0.0; added to stabilise yaw oscillation
+obstacle = 10000.0         # per-obstacle collision penalty
+floor = 500.0              # penalty weight for states below floor_z
+floor_z = 0.1              # height (m) below which the floor penalty applies
 
 [controller.mppi.opponent]
-model = "mppi"                 # mppi | spline_progress | const_vel
-pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in spline_progress
+model = "spline_progress"      # mppi | spline_progress | const_vel
+pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in the predictor
 anchor_fwd = 0.1               # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally
 match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
-drone_exp = 2000.0             # weight of the smooth exponential collision cost
+drone_exp = 50                 # smooth opponent-collision weight (folded from mppi++_overtake; sweep: >=50 yields)
 # Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
 # velocity heading: being behind is costly, alongside is cheap -> sideways overtake.
-use_anisotropic = false        # elongate the keep-out along the opponent's heading
+use_anisotropic = true         # elongate the keep-out along the opponent's heading
 axial = 0.25                   # fore/aft keep-out half-length (m)
-lateral = 0.1                  # sideways keep-out half-width (m)
-core_radius = 0.18             # hard isotropic core the ellipse may never admit closer than
+lateral = 0.1                  # sideways keep-out half-width (m) ~2x drone_radius (actual collision dist)
+core_radius = 0.18             # hard isotropic core (m) the aniso ellipse may never admit closer than
 vel_ema = 0.3                  # EMA low-pass on the observed opponent velocity
-blend_v0 = 0.2                 # iso<->aniso blend centre (m/s)
+blend_v0 = 0.2                 # iso<->aniso blend center (m/s); replaces the hard spd>0.2 switch
 blend_width = 0.05             # blend width (m/s)
 # Iterative best response (Nash): re-score the cached rollouts against each other until the
 # choices stop moving. Only applies to model = "mppi", where opponents are simulated and so have
@@ -66,37 +64,22 @@ blend_width = 0.05             # blend width (m/s)
 # it -- a real opponent that does not yield will not behave this way.
 ibr_iters = 3                  # best-response passes; 0 = single unilateral response
 ibr_mode = "scan"              # scan = Gauss-Seidel (converges) | vmap = Jacobi (can oscillate)
-downwash = 1000.0              # below-opponent wake penalty; the sim does NOT model downwash
+downwash = 1000.0              # below-opponent (wake) penalty — the sim does NOT model downwash!
 downwash_radius = 0.3          # wake cylinder radius (m)
 downwash_dz = 0.6              # wake depth below the opponent (m)
-stale_inflate_rate = 1.0       # keep-out inflation per second of tracking staleness
+stale_inflate_rate = 1.0       # keep-out inflation per second of opponent-tracking staleness
 stale_max = 0.5                # staleness cap (s) -> max inflation 1 + rate*cap
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 4.1
-curvature_weight = 2.0
-clearance = 0.22
+t_total = 6.0              # was 5.0; target matches PPO lap time (3.20s)
+curvature_weight = 2.0     # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
+clearance = 0.22           # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
 lut_samples = 1500
 
 [controller.mppi.geometry] # physical radii (m), moved here from [experiment.env]
 drone_radius = 0.12        # 86mm + safety margin
 obstacle_radius = 0.055    # 110mm diameter pipes
-gate_frame_radius = 0.08
-
-[deploy]
-### Settings only relevant for deployment
-# Whether to check if gate and obstacle positions observed by vicon are within the limits defined down below.
-check_race_track = true
-# Whether to check if the drone start position is within the limits specified down below.
-check_drone_start_pos = true
-# Lets you practice your controller without putting up gates & obstacles, assumes nominal positions given below.
-real_track_objects = true
-
-[[deploy.drones]]
-id = 10
-channel = 100
-drone_model = "cf21B_500"                        # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
-
+gate_frame_radius = 0.1
 
 [sim]
 # Physics options:
@@ -116,13 +99,12 @@ azimuth = 180.0
 elevation = -25.0
 lookat = [0.0, 0.0, 0.0]
 
-
 [env]
-id = "DroneRacing-v0"   # "DroneRacing-v0" for single races, "MultiDroneRacing-v0" for multi-drone races. Each environment also implements a vector-environment for faster training
+id = "MultiDroneRacing-v0"
 seed = -1               # -1 for random seeds or a non-zero integer for reproducibility
-freq = 50               # Frequency of the environment's step function, in Hz
-sensor_range = 0.7      # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.
-control_mode = "attitude"  # Control mode of the environment. Can be either "state" or "attitude"
+freq = 50
+sensor_range = 0.7
+control_mode = "attitude"
 
 [env.track]
 # Full track radomization. When activated, the position (x & y) and orientation (yaw) 
@@ -181,7 +163,7 @@ maxval = [0.1, 0.1, 0.1]
 fn = "uniform"
 [env.randomizations.drone_pos.kwargs]
 minval = [-0.1, -0.1, 0.0]
-maxval = [0.1, 0.1, 0.02]
+maxval = [0.1, 0.1, 0.2]
 
 [env.randomizations.drone_rpy]
 fn = "uniform"
@@ -189,6 +171,7 @@ fn = "uniform"
 minval = [-0.1, -0.1, -0.1]
 maxval = [0.1, 0.1, 0.1]
 
+#Everything for MPPI
 [env.randomizations.drone_mass]
 fn = "uniform"
 [env.randomizations.drone_mass.kwargs]
@@ -204,21 +187,20 @@ maxval = [0.000001, 0.000001, 0.000001]
 [env.randomizations.gate_pos]
 fn = "uniform"
 [env.randomizations.gate_pos.kwargs]
-minval = [-0.10, -0.10, -0.05]
-maxval = [0.10, 0.10, 0.05]
+minval = [-0.05, -0.05, -0.1]
+maxval = [0.05, 0.05, 0.1]
 
 [env.randomizations.gate_rpy]
 fn = "uniform"
 [env.randomizations.gate_rpy.kwargs]
-minval = [-0.03, -0.05, -0.10]
-maxval = [0.03, 0.05, 0.10]
+minval = [-0.05, -0.1, -0.2]
+maxval = [0.05, 0.1, 0.2]
 
 [env.randomizations.obstacle_pos]
 fn = "uniform"
 [env.randomizations.obstacle_pos.kwargs]
-minval = [-0.10, -0.10, -0.05]
-maxval = [0.10, 0.10, 0.05]
-
+minval = [-0.05, -0.05, -0.05]
+maxval = [0.05, 0.05, 0.05]
 
 # [drone], [experiment] and [plot] removed: they were inherited from another framework. The
 # only keys anything read were the radii (now [controller.mppi.geometry]) and drone.model

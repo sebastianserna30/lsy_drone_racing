@@ -1,24 +1,29 @@
-# Level 2
+# deploy single — tuned MPPI++ for deployment on real HW
+#
+# Single-drone test config. Small noise added for runnign on deployment
 
-# | Evaluation Scenario | Randomized Inertial Properties | Randomized Obstacles, Gates | Randomized Tracks | Notes                 |
-# | :-----------------: | :----------------------------: | :-------------------------: | :---------------: | :-------------------: |
-# | `level2.toml`       | *Yes*                          | *Yes*                       | *No*              | Learning, re-planning |
 [controller]
 file = "trajectory_mppi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+#file = "attitude_controller_v1.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
+type = "mppi" # mellinger, mppi
 ctrl_freq = 50 # Hz
+
+[controller.attitude] # AttitudeController parameters
+t_total = 7.8
+
 
 [controller.mppi] # MPPI parameters
 N = 25                     # rollout horizon in steps
-T = 0.5                    # horizon duration (s); dt = T / N, and N / T is the rollout sim freq
-n_samples = 1000           # total rollouts per step; must be divisible by K
-noise_sigma = 0.01         # initial sampling std
+T = 0.5                    # seconds, control horizon duration. Note that dt = T / horizon
+n_samples = 50000          # total rollouts per step; must be divisible by K
+noise_sigma = 0.01         # Initial noise std
 temperature = 0.25         # MPPI softmax temperature
-elite_percentage = 0.01    # fraction of samples averaged per mode, in [0,1]
-beta = 0.6                 # noise smoothing along the horizon, in [0,1]
-alpha = 0.1                # weight of the new variance in the sigma update
+elite_percentage = 0.01    # Top percent for averaging in [0,1]
+beta = 0.6                 # Noise smoothing in [0,1] (no smoothing to max smoothing)
+alpha = 0.1                # weighted variance update weight
 min_variance = 0.02
-K = 5                      # number of modes (means)
-action_ema = 0.4           # EMA blend on the executed action: ema * new + (1-ema) * prev
+K = 5                      # means
+action_ema = 0.4           # EMA blend on executed action: ema * new + (1-ema) * prev
 agents = []                # per-agent overrides; empty means every agent shares the values above
 
 # MPCC progress channel: the reference is keyed on arc length, and each rollout advances
@@ -29,20 +34,20 @@ v_theta_sigma = 0.5        # exploration noise on v_theta (m/s)
 
 [controller.mppi.cost] # ego cost weights
 # contour = off-path (perpendicular) error; high to thread gate centres cleanly
-contour = 40.0
+contour = 20.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
-lag = 800.0
+lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 2.0
-z = 80.0
-ang_vel = 0.0
-ang_acc = 0.0
-tilt = 1.0
-thrust = 1.0
-yaw = 2.0
-obstacle = 1000.0
-floor = 500.0
-floor_z = 0.1
+progress = 1.0
+z = 80.0                   # extra penalty for altitude error
+ang_vel = 0.0              # angular-velocity penalty (off)
+ang_acc = 0.0              # angular-acceleration penalty (off)
+tilt = 1.0                 # was 5.0; loosened to allow aggressive roll/pitch
+thrust = 1.0               # was 0.0; regularise toward hover thrust
+yaw = 2.0                  # was 0.0; added to stabilise yaw oscillation
+obstacle = 20000.0         # per-obstacle collision penalty
+floor = 500.0              # penalty weight for states below floor_z
+floor_z = 0.1              # height (m) below which the floor penalty applies
 
 [controller.mppi.opponent]
 model = "mppi"                 # mppi | spline_progress | const_vel
@@ -73,15 +78,15 @@ stale_inflate_rate = 1.0       # keep-out inflation per second of tracking stale
 stale_max = 0.5                # staleness cap (s) -> max inflation 1 + rate*cap
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
-t_total = 4.1
-curvature_weight = 2.0
-clearance = 0.22
+t_total = 5.0              # was 5.0; target matches PPO lap time (3.20s)
+curvature_weight = 2.0     # k=0.5 best per-segment match vs PPO (k>0.5 over-penalises the G0->G1 curve)
+clearance = 0.22           # 0.16-0.21 flips obs3 detour to wrong side; 0.22 stays NE (path 7.74m, min_obs 0.21m)
 lut_samples = 1500
 
 [controller.mppi.geometry] # physical radii (m), moved here from [experiment.env]
-drone_radius = 0.12        # 86mm + safety margin
-obstacle_radius = 0.055    # 110mm diameter pipes
-gate_frame_radius = 0.08
+drone_radius = 0.14        # 86mm + safety margin
+obstacle_radius = 0.065    # 110mm diameter pipes added buffer
+gate_frame_radius = 0.12   # ideal 0.08 but with buffer
 
 [deploy]
 ### Settings only relevant for deployment
@@ -92,10 +97,11 @@ check_drone_start_pos = true
 # Lets you practice your controller without putting up gates & obstacles, assumes nominal positions given below.
 real_track_objects = true
 
+
 [[deploy.drones]]
-id = 10
+id = 20
 channel = 100
-drone_model = "cf21B_500"                        # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
+drone_model = "cf21B_500"    
 
 
 [sim]
@@ -116,7 +122,6 @@ azimuth = 180.0
 elevation = -25.0
 lookat = [0.0, 0.0, 0.0]
 
-
 [env]
 id = "DroneRacing-v0"   # "DroneRacing-v0" for single races, "MultiDroneRacing-v0" for multi-drone races. Each environment also implements a vector-environment for faster training
 seed = -1               # -1 for random seeds or a non-zero integer for reproducibility
@@ -125,8 +130,8 @@ sensor_range = 0.7      # Range at which the exact location of gates and obstacl
 control_mode = "attitude"  # Control mode of the environment. Can be either "state" or "attitude"
 
 [env.track]
-# Full track radomization. When activated, the position (x & y) and orientation (yaw) 
-# of the below given gates, obstacles and drones is randomized inside the safety limits. 
+# Full track radomization. When activated, the position (x & y) and orientation (yaw)
+# of the below given gates, obstacles and drones is randomized inside the safety limits.
 # Note: The order and therefore also height is not randomized!
 randomize = false
 
@@ -204,14 +209,14 @@ maxval = [0.000001, 0.000001, 0.000001]
 [env.randomizations.gate_pos]
 fn = "uniform"
 [env.randomizations.gate_pos.kwargs]
-minval = [-0.10, -0.10, -0.05]
-maxval = [0.10, 0.10, 0.05]
+minval = [-0.10, -0.10, -0.1]
+maxval = [0.10, 0.10, 0.1]
 
 [env.randomizations.gate_rpy]
 fn = "uniform"
 [env.randomizations.gate_rpy.kwargs]
-minval = [-0.03, -0.05, -0.10]
-maxval = [0.03, 0.05, 0.10]
+minval = [-0.05, -0.1, -0.2]
+maxval = [0.05, 0.1, 0.2]
 
 [env.randomizations.obstacle_pos]
 fn = "uniform"
@@ -219,6 +224,7 @@ fn = "uniform"
 minval = [-0.10, -0.10, -0.05]
 maxval = [0.10, 0.10, 0.05]
 
+#Everything for MPPI
 
 # [drone], [experiment] and [plot] removed: they were inherited from another framework. The
 # only keys anything read were the radii (now [controller.mppi.geometry]) and drone.model

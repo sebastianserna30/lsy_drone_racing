@@ -1,0 +1,21 @@
+/home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/.pixi/envs/gpu/lib/python3.13/site-packages/jax/_src/abstract_arrays.py:145: RuntimeWarning: overflow encountered in cast
+  return literals.TypedNdArray(np.asarray(x, dtype))
+--- seed 1000 done (1/5) ---
+opp_progress=0.1    opp_t=11.52  oppOK=100%  both=100%  overtake=100%  ours=100%+-0pp  t=4.58s  n=1
+opp_progress=1.5    opp_t=4.28  oppOK=100%  both=100%  overtake=0%  ours=100%+-0pp  t=4.92s  n=1
+--- seed 1001 done (2/5) ---
+opp_progress=0.1    opp_t=11.52  oppOK=50%  both=50%  overtake=50%  ours=50%+-35pp  t=4.58s  n=2
+opp_progress=1.5    opp_t=4.28  oppOK=50%  both=50%  overtake=0%  ours=50%+-35pp  t=4.92s  n=2
+--- seed 1002 done (3/5) ---
+opp_progress=0.1    opp_t=11.52  oppOK=33%  both=33%  overtake=33%  ours=33%+-27pp  t=4.58s  n=3
+opp_progress=1.5    opp_t=4.28  oppOK=33%  both=33%  overtake=0%  ours=33%+-27pp  t=4.92s  n=3
+--- seed 1003 done (4/5) ---
+opp_progress=0.1    opp_t=12.76  oppOK=50%  both=25%  overtake=25%  ours=25%+-22pp  t=4.58s  n=4
+opp_progress=1.5    opp_t=4.28  oppOK=25%  both=25%  overtake=0%  ours=25%+-22pp  t=4.92s  n=4
+--- seed 1004 done (5/5) ---
+opp_progress=0.1    opp_t=12.13  oppOK=60%  both=40%  overtake=40%  ours=40%+-22pp  t=4.91s  n=5
+opp_progress=1.5    opp_t=4.17  oppOK=40%  both=20%  overtake=0%  ours=20%+-18pp  t=4.92s  n=5
+
+summary -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_opp_progress_2026-08-05_14-37-07.csv
+per-run  -> /home/sebas/Documents/university/TUM/Master/SS26/MAADR/lsy_drone_racing/sweep_opp_progress_2026-08-05_14-37-07_runs.csv
+0

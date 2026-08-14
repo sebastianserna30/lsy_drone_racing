@@ -7,70 +7,65 @@
 file = "trajectory_mppi.py" # Put your controller file name here. Specifying a controller as argument to scripts will override this setting. Controllers are located in `lsy_drone_racing/control/`
 ctrl_freq = 50 # Hz
 
-[controller.mppi] # MPPI parameters
-N = 25                     # rollout horizon in steps
-T = 0.5                    # horizon duration (s); dt = T / N, and N / T is the rollout sim freq
-n_samples = 1000           # total rollouts per step; must be divisible by K
-noise_sigma = 0.01         # initial sampling std
-temperature = 0.25         # MPPI softmax temperature
-elite_percentage = 0.01    # fraction of samples averaged per mode, in [0,1]
-beta = 0.6                 # noise smoothing along the horizon, in [0,1]
-alpha = 0.1                # weight of the new variance in the sigma update
+[controller.mppi]
+N = 25                  # rollout horizon in steps
+T = 0.5                 # horizon duration (s); dt = T / N, and N / T is the rollout sim freq
+n_samples = 5000        # total rollouts per step; must be divisible by K
+noise_sigma = 0.01      # initial sampling std
+temperature = 0.25      # MPPI softmax temperature
+elite_percentage = 0.01 # fraction of samples averaged per mode, in [0,1]
+beta = 0.6              # noise smoothing along the horizon, in [0,1]
+alpha = 0.1             # weight of the new variance in the sigma update
 min_variance = 0.02
-K = 5                      # number of modes (means)
-action_ema = 0.4           # EMA blend on the executed action: ema * new + (1-ema) * prev
-agents = []                # per-agent overrides; empty means every agent shares the values above
+K = 5                   # number of modes (means)
+action_ema = 0.4        # EMA blend on the executed action: ema * new + (1-ema) * prev
+agents = []             # per-agent overrides; empty means every agent shares the values above
 
-# MPCC progress channel: the reference is keyed on arc length, and each rollout advances
-# its own theta by a sampled v_theta (the 5th control channel).
-v_theta_init = 2.0         # nominal forward progress speed (m/s) ~ path_length / t_total
-v_theta_max = 6.0          # cap on progress speed
-v_theta_sigma = 0.5        # exploration noise on v_theta (m/s)
+# MPCC progress channel: the reference is keyed on arc length, and each rollout advances its own
+# theta by a sampled v_theta (the 5th control channel).
+v_theta_init = 2.0      # nominal forward progress speed (m/s) ~ path_length / t_total
+v_theta_max = 6.0       # cap on progress speed
+v_theta_sigma = 0.5     # exploration noise on v_theta (m/s)
 
 [controller.mppi.cost] # ego cost weights
-# contour = off-path (perpendicular) error; high to thread gate centres cleanly
-contour = 40.0
-# lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
-lag = 800.0
-# progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 2.0
-z = 80.0
+contour = 40.0    # off-path (perpendicular) error
+lag = 800.0       # ahead/behind-of-theta error along the path tangent
+progress = 2.0    # reward for advancing theta; the "go faster" term
+z = 80.0          # extra altitude penalty
 ang_vel = 0.0
 ang_acc = 0.0
 tilt = 1.0
 thrust = 1.0
 yaw = 2.0
-obstacle = 1000.0
+obstacle = 1000.0 # per-hit penalty, shared by pillars and gate frames
 floor = 500.0
-floor_z = 0.1
+floor_z = 0.1     # height (m) below which the floor penalty applies
 
-[controller.mppi.opponent]
-model = "mppi"                 # mppi | spline_progress | const_vel
-pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in spline_progress
-anchor_fwd = 0.1               # m; forward slack of the theta anchor search window
-anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally
+[controller.mppi.opponent] # unused here (single agent), but stated rather than defaulted
+model = "mppi"                # mppi | spline_progress | const_vel
+pred_offset_tau = 0.5         # s; decay of the opponent's off-spline offset in spline_progress
+anchor_fwd = 0.10             # m; forward slack of the theta anchor search window
+anchor_reacquire_dist = 0.75  # m; residual above which the anchor is re-acquired globally
 match_pace = true              # drive the modelled opponent at its OBSERVED forward speed
-drone_exp = 2000.0             # weight of the smooth exponential collision cost
-# Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
-# velocity heading: being behind is costly, alongside is cheap -> sideways overtake.
-use_anisotropic = false        # elongate the keep-out along the opponent's heading
-axial = 0.25                   # fore/aft keep-out half-length (m)
-lateral = 0.1                  # sideways keep-out half-width (m)
-core_radius = 0.18             # hard isotropic core the ellipse may never admit closer than
-vel_ema = 0.3                  # EMA low-pass on the observed opponent velocity
-blend_v0 = 0.2                 # iso<->aniso blend centre (m/s)
-blend_width = 0.05             # blend width (m/s)
+drone_exp = 2000.0            # weight of the smooth exponential collision cost
+use_anisotropic = false       # elongate the keep-out along the opponent's heading
+axial = 0.25                  # fore/aft keep-out half-length (m)
+lateral = 0.10                # sideways keep-out half-width (m)
+core_radius = 0.18            # hard isotropic core the ellipse may never admit closer than
+vel_ema = 0.3                 # EMA low-pass on the observed opponent velocity
+blend_v0 = 0.2                # iso<->aniso blend centre (m/s)
+blend_width = 0.05            # blend width (m/s)
 # Iterative best response (Nash): re-score the cached rollouts against each other until the
 # choices stop moving. Only applies to model = "mppi", where opponents are simulated and so have
 # a sample bank to respond with. NOTE this models the opponent as avoiding us as hard as we avoid
 # it -- a real opponent that does not yield will not behave this way.
 ibr_iters = 3                  # best-response passes; 0 = single unilateral response
 ibr_mode = "scan"              # scan = Gauss-Seidel (converges) | vmap = Jacobi (can oscillate)
-downwash = 1000.0              # below-opponent wake penalty; the sim does NOT model downwash
-downwash_radius = 0.3          # wake cylinder radius (m)
-downwash_dz = 0.6              # wake depth below the opponent (m)
-stale_inflate_rate = 1.0       # keep-out inflation per second of tracking staleness
-stale_max = 0.5                # staleness cap (s) -> max inflation 1 + rate*cap
+downwash = 1000.0             # below-opponent wake penalty; the sim does NOT model downwash
+downwash_radius = 0.3         # wake cylinder radius (m)
+downwash_dz = 0.6             # wake depth below the opponent (m)
+stale_inflate_rate = 1.0      # keep-out inflation per second of tracking staleness
+stale_max = 0.5               # staleness cap (s) -> max inflation 1 + rate*cap
 
 [controller.mppi.spline] # fixed reference-trajectory params (SplinePlanner)
 t_total = 4.1
@@ -79,8 +74,8 @@ clearance = 0.22
 lut_samples = 1500
 
 [controller.mppi.geometry] # physical radii (m), moved here from [experiment.env]
-drone_radius = 0.12        # 86mm + safety margin
-obstacle_radius = 0.055    # 110mm diameter pipes
+drone_radius = 0.12       # 86mm + safety margin
+obstacle_radius = 0.055   # 110mm diameter pipes
 gate_frame_radius = 0.08
 
 [deploy]
@@ -219,7 +214,5 @@ fn = "uniform"
 minval = [-0.10, -0.10, -0.05]
 maxval = [0.10, 0.10, 0.05]
 
-
-# [drone], [experiment] and [plot] removed: they were inherited from another framework. The
-# only keys anything read were the radii (now [controller.mppi.geometry]) and drone.model
-# (now sim.drone_model, which already held the same value).
+# [drone] and [experiment.env] removed: the drone model now comes from sim.drone_model, and the
+# radii live in [controller.mppi.geometry] with the rest of the controller's parameters.

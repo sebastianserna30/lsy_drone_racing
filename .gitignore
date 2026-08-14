@@ -19,3 +19,14 @@ c_generated_code/
 !.pixi/config.toml
 ros_ws/
 acados/
+
+tries/
+.claude/
+runs/
+
+# Plot/animation artifacts dropped at the repo root by the study scripts. Root-anchored so
+# tracked assets (docs/img/, envs/assets/) are unaffected.
+/*.png
+/*.gif
+/*.mp4
+/*.pkl
