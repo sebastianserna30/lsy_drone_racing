@@ -64,7 +64,10 @@ class AttitudeMPPIController(Controller):
         return gate_frame_pos
 
     def __init__(
-        self, initial_obs: dict[str, NDArray[np.floating]], info: dict, initial_info: dict
+        self,
+        initial_obs: dict[str, NDArray[np.floating]],
+        info: dict,
+        initial_info: dict,
     ):
         """Initialize the MPPI controller.
 
@@ -93,7 +96,10 @@ class AttitudeMPPIController(Controller):
 
         def _agent_cfg(a: int, key: str, default: object) -> object:
             """Per-agent override from [[controller.mppi.agents]], or the shared value."""
-            if a < len(cfg.agents) and (value := getattr(cfg.agents[a], key)) is not None:
+            if (
+                a < len(cfg.agents)
+                and (value := getattr(cfg.agents[a], key)) is not None
+            ):
                 return value
             return default
 
@@ -164,7 +170,9 @@ class AttitudeMPPIController(Controller):
         self.noise_sigmas = []
         self.mean_controls = []
         for k in self.K[: self.n_sim_agents]:
-            sig = jnp.full((k, self.N, self.num_inputs), cfg.noise_sigma, device=self.sim.device)
+            sig = jnp.full(
+                (k, self.N, self.num_inputs), cfg.noise_sigma, device=self.sim.device
+            )
             sig = sig.at[:, :, 4].set(cfg.v_theta_sigma)
             self.noise_sigmas.append(sig)
             m = jnp.zeros((k, self.N, self.num_inputs), device=self.sim.device)
@@ -183,10 +191,16 @@ class AttitudeMPPIController(Controller):
                     rep_w.append(k * self.M[a])
                     rep_a.append(a)
         if rep_w:
-            self._rep_w = jnp.asarray(np.array(rep_w, dtype=np.int32), device=self.sim.device)
-            self._rep_a = jnp.asarray(np.array(rep_a, dtype=np.int32), device=self.sim.device)
+            self._rep_w = jnp.asarray(
+                np.array(rep_w, dtype=np.int32), device=self.sim.device
+            )
+            self._rep_a = jnp.asarray(
+                np.array(rep_a, dtype=np.int32), device=self.sim.device
+            )
         else:
-            self._rep_w = self._rep_a = None  # never dereferenced (single-agent / predictor mode)
+            self._rep_w = self._rep_a = (
+                None  # never dereferenced (single-agent / predictor mode)
+            )
 
         self.obstacles = jnp.array(initial_obs["obstacles_pos"], device=self.sim.device)
         gate_frame_pos = self.get_gate_frame_pos(
@@ -242,7 +256,9 @@ class AttitudeMPPIController(Controller):
             downwash_dz=opp.downwash_dz,
         )
         self.thrust = np.zeros(4)
-        self._prev_action = np.array([0.0, 0.0, 0.0, HOVER_THRUST])  # [roll, pitch, yaw, thrust]
+        self._prev_action = np.array(
+            [0.0, 0.0, 0.0, HOVER_THRUST]
+        )  # [roll, pitch, yaw, thrust]
         self._action_ema = float(cfg.action_ema)  # damps mode-switching oscillation
 
         # Keep the observation dtype: casting to float64 here shifts the spline in the last bits,
@@ -270,7 +286,9 @@ class AttitudeMPPIController(Controller):
         )
         # False forces the next anchor_theta call to bootstrap with a global search.
         self._opp_anchored = [False] * self.n_agents
-        self._opp_pred_np = None  # kinematic opponent predictions (N, A-1, 3) for rendering
+        self._opp_pred_np = (
+            None  # kinematic opponent predictions (N, A-1, 3) for rendering
+        )
         self._opp_inflate_np = np.ones(max(self.n_agents - 1, 1), dtype=np.float32)
         self._last_gates_pos = None
         self._last_gates_quat = None
@@ -286,13 +304,17 @@ class AttitudeMPPIController(Controller):
                 ),
                 obstacles_pos=initial_obs["obstacles_pos"],
                 clearance=float(self._agent_cfg(a, "clearance", cfg.spline.clearance)),
-                dip_allowed=bool(self._agent_cfg(a, "dip_allowed", cfg.spline.dip_allowed)),
+                dip_allowed=bool(
+                    self._agent_cfg(a, "dip_allowed", cfg.spline.dip_allowed)
+                ),
             )
             for a in range(self.n_agents)
         ]
 
         # Splines are fixed at reset; the controller never replans waypoints mid-run.
-        self._paths = reference.build_paths(self._planner, cfg.spline.lut_samples, self.sim.device)
+        self._paths = reference.build_paths(
+            self._planner, cfg.spline.lut_samples, self.sim.device
+        )
         self._stage_cost_fn = cost_mod.build_stage_cost_fn(
             weights=self._weights,
             paths=self._paths,
@@ -360,7 +382,9 @@ class AttitudeMPPIController(Controller):
         self._rng_key = jax.random.PRNGKey(0)
         self._rng_key, subkey = random.split(self._rng_key)
 
-        self._logger = diagnostics.CostLogger()  # must exist before warmup calls compute_control
+        self._logger = (
+            diagnostics.CostLogger()
+        )  # must exist before warmup calls compute_control
         for i in range(10):
             a = self.compute_control(initial_obs, info)  # Warm up the controller
             jax.block_until_ready(a)
@@ -411,7 +435,9 @@ class AttitudeMPPIController(Controller):
             "pos": jnp.asarray(pos_obs[: self.n_sim_agents], device=self.sim.device),
             "quat": jnp.asarray(quat_obs[: self.n_sim_agents], device=self.sim.device),
             "vel": jnp.asarray(vel_obs[: self.n_sim_agents], device=self.sim.device),
-            "ang_vel": jnp.asarray(angv_obs[: self.n_sim_agents], device=self.sim.device),
+            "ang_vel": jnp.asarray(
+                angv_obs[: self.n_sim_agents], device=self.sim.device
+            ),
             "rotor_vel": jnp.asarray(rotor_obs, device=self.sim.device),
         }
 
@@ -423,8 +449,13 @@ class AttitudeMPPIController(Controller):
                 theta_starts.append(self._theta[0])
             else:
                 th, self._opp_anchored[a] = reference.anchor_theta(
-                    self._paths, a, pos_obs[a], self._tracker.vel_filt[a],
-                    float(self._theta[a]), self._opp_anchored[a], self._anchor_params,
+                    self._paths,
+                    a,
+                    pos_obs[a],
+                    self._tracker.vel_filt[a],
+                    float(self._theta[a]),
+                    self._opp_anchored[a],
+                    self._anchor_params,
                 )
                 self._theta[a] = th
                 theta_starts.append(th)
@@ -433,7 +464,11 @@ class AttitudeMPPIController(Controller):
         if A > 1 and self.opponent_model == "mppi" and self._match_pace:
             for a in range(1, self.n_sim_agents):
                 v_prog = opponents.forward_speed(
-                    self._paths, a, theta_starts[a], self._tracker.vel_filt[a], self.v_theta_max
+                    self._paths,
+                    a,
+                    theta_starts[a],
+                    self._tracker.vel_filt[a],
+                    self.v_theta_max,
                 )
                 # Re-pinned every step, so the progress reward cannot ratchet the modelled
                 # opponent's pace up over time. Sigma stays > 0: truncated_normal divides by it.
@@ -458,7 +493,9 @@ class AttitudeMPPIController(Controller):
                 # (A, A): entry (a, b) is the inflation applied when agent a is scored against
                 # agent b. Only the ego's row carries real staleness — an opponent's view of us
                 # is never stale, because our own state comes from the flight controller.
-                inflate_arr = np.ones((self.n_sim_agents, self.n_sim_agents), dtype=np.float32)
+                inflate_arr = np.ones(
+                    (self.n_sim_agents, self.n_sim_agents), dtype=np.float32
+                )
                 inflate_arr[0, 1:] = opp_inflate[: self.n_sim_agents - 1]
             elif self.opponent_model == "mppi":
                 # rep order matches self._rep_w/_rep_a construction: (agent a, mode k)
@@ -509,7 +546,9 @@ class AttitudeMPPIController(Controller):
 
         # Execute ONLY the ego (agent 0) winner; opponents are internal predictions.
         ego_best = best_idx[0]
-        best_action = new_means[0][ego_best, 0]  # 5-dim: [roll, pitch, yaw, thrust, v_theta]
+        best_action = new_means[0][
+            ego_best, 0
+        ]  # 5-dim: [roll, pitch, yaw, thrust, v_theta]
 
         # Receding-horizon shift of every agent's means & sigmas.
         vmap_shift = jax.vmap(sampling.shift_and_interpolate, in_axes=(0, None, None))
@@ -524,7 +563,9 @@ class AttitudeMPPIController(Controller):
         self.all_positions = positions_grouped  # per agent (K_a, M_a, N, 3)
         self.all_best_idx = [int(b) for b in best_idx]
         self.all_costs = costs_grouped
-        self.mode_term_costs = mode_term_costs[0]  # ego per-mode best-sample cost breakdown
+        self.mode_term_costs = mode_term_costs[
+            0
+        ]  # ego per-mode best-sample cost breakdown
         # Which rollout each agent settled on at the best-response fixed point. Worth watching:
         # if these keep flipping between control steps the iteration is oscillating rather than
         # converging, which is the failure mode of Jacobi updates on a tightly coupled game.
@@ -536,16 +577,22 @@ class AttitudeMPPIController(Controller):
         full_action = np.asarray(best_action)  # back to CPU, 5-dim
         v_theta_cmd = float(full_action[4])
         action = full_action[:4]
-        action = self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
+        action = (
+            self._action_ema * action + (1.0 - self._action_ema) * self._prev_action
+        )
         self._prev_action = action
         # commit ego progress: advance theta by the executed v_theta over one control cycle
         s_total_ego = float(self._paths.s_total_np[0])
-        self._theta[0] = float(min(self._theta[0] + v_theta_cmd * self.ctrl_dt, s_total_ego))
+        self._theta[0] = float(
+            min(self._theta[0] + v_theta_cmd * self.ctrl_dt, s_total_ego)
+        )
         self.v_theta_cmd = v_theta_cmd  # store for logging / debugging
         if self._theta[0] >= s_total_ego - 1e-3:
             self._finished = True
         self.thrust += (
-            self.drone_params["thrust_dyn_coef"] * (action[3] - self.thrust) * self.ctrl_dt
+            self.drone_params["thrust_dyn_coef"]
+            * (action[3] - self.thrust)
+            * self.ctrl_dt
         )
 
         if self._logger.active:
@@ -555,12 +602,21 @@ class AttitudeMPPIController(Controller):
             opp_pred_log = self._opp_pred_np
             if A > 1 and self.opponent_model == "mppi":
                 reps = [
-                    np.asarray(self.all_positions[a][:, 0]) for a in range(1, self.n_sim_agents)
+                    np.asarray(self.all_positions[a][:, 0])
+                    for a in range(1, self.n_sim_agents)
                 ]
-                opp_pred_log = np.concatenate(reps, axis=0).transpose(1, 0, 2)  # (N, P, 3)
+                opp_pred_log = np.concatenate(reps, axis=0).transpose(
+                    1, 0, 2
+                )  # (N, P, 3)
             self._logger.log_step(
-                self._t, obs, action, self.mode_term_costs, self.costs, self.best_mode_idx,
-                opp_pred_log, self.ibr_best_samples,
+                self._t,
+                obs,
+                action,
+                self.mode_term_costs,
+                self.costs,
+                self.best_mode_idx,
+                opp_pred_log,
+                self.ibr_best_samples,
             )
 
         return action
@@ -584,8 +640,12 @@ class AttitudeMPPIController(Controller):
         )
 
         if gates_changed:
-            gate_frame_pos = self.get_gate_frame_pos(obs["gates_pos"], obs["gates_quat"])
-            self.gate_frame_obstacles = jnp.array(gate_frame_pos, device=self.sim.device)
+            gate_frame_pos = self.get_gate_frame_pos(
+                obs["gates_pos"], obs["gates_quat"]
+            )
+            self.gate_frame_obstacles = jnp.array(
+                gate_frame_pos, device=self.sim.device
+            )
 
             self._last_gates_pos = obs["gates_pos"].copy()
             self._last_gates_quat = obs["gates_quat"].copy()
@@ -614,7 +674,9 @@ class AttitudeMPPIController(Controller):
             self._theta[0],
         )
         if getattr(self, "positions", None) is not None:
-            diagnostics.draw_rollouts(sim, self.positions, self.costs, self.best_mode_idx)
+            diagnostics.draw_rollouts(
+                sim, self.positions, self.costs, self.best_mode_idx
+            )
             # Predictor modes have no opponent rollouts; draw the kinematic prediction instead.
             if self._opp_pred_np is not None:
                 diagnostics.draw_opponent_predictions(sim, self._opp_pred_np)
@@ -630,5 +692,8 @@ class AttitudeMPPIController(Controller):
                     self._tracker.vel_filt[1:],
                     self._opp_inflate_np,
                     self._opp_cost,
+                )
+                diagnostics.draw_opponent_downwash(
+                    sim, self._tracker.held["pos"][1:], self._opp_inflate_np, self._opp_cost
                 )
         diagnostics.draw_obstacles(sim, self.obstacles, self.gate_frame_obstacles)

@@ -151,6 +151,36 @@ def test_both_schedules_agree_once_settled(params: cost.OpponentCostParams):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("mode", "per_pass"), [("scan", A), ("vmap", 1)])
+def test_trace_records_every_move_and_still_ends_where_the_solve_does(
+    params: cost.OpponentCostParams, mode: str, per_pass: int
+):
+    """The visualisation reads the history, so it must be the real path to the real answer.
+
+    Gauss-Seidel records one state per agent move, Jacobi one per pass; both start from the
+    decoupled seed and must finish on exactly what the untraced solve returns.
+    """
+    rng = np.random.default_rng(1)
+    pos = jnp.asarray(rng.normal(scale=0.3, size=(N, W, A, 3)), dtype=jnp.float32)
+    decoupled = {"track": jnp.asarray(rng.uniform(size=(W, A)), dtype=jnp.float32)}
+    n_iters = 3
+
+    _, _, plain = ibr.build_ibr_fn(params, A, DT, n_iters, mode)(
+        decoupled, pos, _flat_inflate()
+    )
+    _, _, history = ibr.build_ibr_fn(params, A, DT, n_iters, mode, trace=True)(
+        decoupled, pos, _flat_inflate()
+    )
+    history = np.asarray(history)
+
+    assert history.shape == (1 + n_iters * per_pass, A)
+    np.testing.assert_array_equal(
+        history[0], np.asarray(jnp.argmin(decoupled["track"], axis=0))  # the decoupled seed
+    )
+    np.testing.assert_array_equal(history[-1], np.asarray(plain))
+
+
+@pytest.mark.unit
 def test_unknown_mode_is_rejected(params: cost.OpponentCostParams):
     """A typo in ibr_mode must fail at build time, not silently pick a schedule."""
     with pytest.raises(ValueError, match="ibr_mode"):

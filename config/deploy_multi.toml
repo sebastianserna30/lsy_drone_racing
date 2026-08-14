@@ -34,18 +34,18 @@ v_theta_sigma = 0.6        # exploration noise on v_theta (m/s)
 
 [controller.mppi.cost] # ego cost weights
 # contour = off-path (perpendicular) error; high to thread gate centres cleanly
-contour = 80.0
+contour = 200.0
 # lag = along-path (ahead/behind theta) error; keeps theta synced to the drone
 lag = 400.0
 # progress = reward for advancing theta (the "go faster" term). Lower = calmer, safer.
-progress = 1.5
-z = 80.0                   # extra penalty for altitude error
+progress = 5.0
+z = 0.0                   # extra penalty for altitude error
 ang_vel = 0.0              # angular-velocity penalty (off)
 ang_acc = 0.0              # angular-acceleration penalty (off)
 tilt = 1.0                 # was 5.0; loosened to allow aggressive roll/pitch
 thrust = 1.0               # was 0.0; regularise toward hover thrust
 yaw = 2.0                  # was 0.0; added to stabilise yaw oscillation
-obstacle = 10000.0         # per-obstacle collision penalty
+obstacle = 100.0         # per-obstacle collision penalty
 floor = 500.0              # penalty weight for states below floor_z
 floor_z = 0.1              # height (m) below which the floor penalty applies
 
@@ -63,13 +63,13 @@ match_pace = true              # drive the modelled opponent at its OBSERVED for
 # Smooth opponent-collision weight. Must stay ABOVE `downwash`: the wake cylinder only extends
 # DOWNWARD from the opponent, so its only exit is upward THROUGH the other drone. If escaping the
 # wake is cheaper than the collision it passes through, the ego climbs into the opponent.
-drone_exp = 2000.0
+drone_exp = 150.0
 # Anisotropic opponent keep-out (overtake). Ellipse elongated ALONG the other drone's real
 # velocity heading: being behind is costly, alongside is cheap -> sideways overtake.
 use_anisotropic = true         # elongate the keep-out along the opponent's heading
-axial = 0.25                   # fore/aft keep-out half-length (m)
-lateral = 0.24                  # sideways keep-out half-width (m) ~2x drone_radius (actual collision dist)
-core_radius = 0.18             # hard isotropic core the ellipse may never admit closer than
+axial = 0.10                   # fore/aft keep-out half-length (m)
+lateral = 0.20                  # sideways keep-out half-width (m) ~2x drone_radius (actual collision dist)
+core_radius = 0.20             # hard isotropic core the ellipse may never admit closer than
 vel_ema = 0.3                  # EMA low-pass on the observed opponent velocity
 blend_v0 = 0.2                 # iso<->aniso blend centre (m/s)
 blend_width = 0.05             # blend width (m/s)
@@ -79,9 +79,9 @@ blend_width = 0.05             # blend width (m/s)
 # it -- a real opponent that does not yield will not behave this way.
 ibr_iters = 3                  # best-response passes; 0 = single unilateral response
 ibr_mode = "scan"              # scan = Gauss-Seidel (converges) | vmap = Jacobi (can oscillate)
-downwash = 1000.0              # below-opponent wake penalty; the sim does NOT model downwash
-downwash_radius = 0.3          # wake cylinder radius (m)
-downwash_dz = 0.6              # wake depth below the opponent (m)
+downwash = 100.0              # below-opponent wake penalty; the sim does NOT model downwash
+downwash_radius = 0.10          # wake cylinder radius (m)
+downwash_dz = 0.3              # wake depth below the opponent (m)
 stale_inflate_rate = 1.0       # keep-out inflation per second of tracking staleness
 stale_max = 0.5                # staleness cap (s) -> max inflation 1 + rate*cap
 

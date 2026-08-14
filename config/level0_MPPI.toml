@@ -47,7 +47,7 @@ floor = 500.0              # penalty weight for states below floor_z
 floor_z = 0.1              # height (m) below which the floor penalty applies
 
 [controller.mppi.opponent]
-model = "mppi"                 # mppi | spline_progress | const_vel
+model = "const_vel"                 # mppi | spline_progress | const_vel
 pred_offset_tau = 0.5          # s; decay of the opponent's off-spline offset in spline_progress
 anchor_fwd = 0.1               # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75   # m; residual above which the anchor is re-acquired globally

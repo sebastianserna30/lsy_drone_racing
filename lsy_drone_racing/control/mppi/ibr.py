@@ -62,6 +62,7 @@ def build_ibr_fn(
     dt: float,
     n_iters: int,
     mode: str,
+    trace: bool = False,
 ) -> Callable[..., tuple[Array, dict[str, Array], Array]]:
     """Bake the keep-out geometry and iteration schedule into a jitted best-response solve.
 
@@ -82,10 +83,16 @@ def build_ibr_fn(
             depends on the parity of ``n_iters``, which is not a property any tuning can fix.
             Gauss-Seidel converges here because the second agent already sees the first one
             move. See ``test_jacobi_can_oscillate_while_gauss_seidel_settles``.
+        trace: return every intermediate choice instead of only the fixed point, for
+            visualising the solve. The third return value becomes a history (F, A) whose first
+            row is the decoupled seed and whose remaining rows are the state after each
+            *move*: one row per agent per pass under Gauss-Seidel, one row per pass under
+            Jacobi. Off in flight -- the extra rows are dead weight there.
 
     Returns:
         A jitted ``ibr(decoupled_terms, pos_cache, inflate)`` returning
-        (total cost (W, A), coupled terms each (W, A), chosen sample per agent (A,)).
+        (total cost (W, A), coupled terms each (W, A), chosen sample per agent (A,) -- or the
+        (F, A) history of choices when ``trace``).
     """
     if mode not in IBR_MODES:
         raise ValueError(f"ibr_mode must be one of {IBR_MODES}, got {mode!r}")
@@ -139,34 +146,41 @@ def build_ibr_fn(
                 an opponent's view of us is not stale, because we know our own state.
 
         Returns:
-            (total (W, A), coupled terms each (W, A), chosen sample index per agent (A,)).
+            (total (W, A), coupled terms each (W, A), chosen sample index per agent (A,), or
+            the (F, A) history of choices under ``trace``).
         """
         vel = headings_from_positions(pos, dt)
         # Seed the iteration with each agent's decoupled optimum: the line it would fly if the
         # others were not there. Coupling then pulls the choices apart.
-        best = jnp.argmin(sum(decoupled.values()), axis=0)  # (A,)
+        seed = jnp.argmin(sum(decoupled.values()), axis=0)  # (A,)
 
         if mode == "vmap":
 
-            def iteration(best: Array, _: None) -> tuple[Array, None]:
+            def iteration(best: Array, _: None) -> tuple[Array, Array | None]:
                 """Jacobi: score every agent against the same snapshot, then all move at once."""
                 totals = totals_from(decoupled, coupled_all(pos, vel, best, inflate))
-                return jnp.argmin(totals, axis=0), None
+                best = jnp.argmin(totals, axis=0)
+                return best, (best[None] if trace else None)  # one recorded state per pass
 
         else:
 
-            def iteration(best: Array, _: None) -> tuple[Array, None]:
+            def iteration(best: Array, _: None) -> tuple[Array, Array | None]:
                 """Gauss-Seidel: each agent moves in turn and the next one sees it."""
+                moves = []
                 for a in range(n_sim_agents):
                     coupled = coupled_all(pos, vel, best, inflate)
                     totals = totals_from(decoupled, coupled)
                     best = best.at[a].set(jnp.argmin(totals[:, a]))
-                return best, None
+                    moves.append(best)
+                return best, (jnp.stack(moves) if trace else None)  # one state per agent move
 
-        best, _ = scan(iteration, best, None, length=n_iters)
+        best, moves = scan(iteration, seed, None, length=n_iters)
         # Final re-score, so the returned costs are the ones at the fixed point rather than the
         # ones that produced it. This is also what the MPPI distribution update is fitted to.
         coupled = coupled_all(pos, vel, best, inflate)
+        if trace:
+            # (n_iters, moves_per_pass, A) -> (F, A), seed first.
+            best = jnp.concatenate([seed[None], moves.reshape(-1, n_sim_agents)], axis=0)
         return totals_from(decoupled, coupled), coupled, best
 
     return jax.jit(ibr)

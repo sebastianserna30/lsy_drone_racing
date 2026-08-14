@@ -285,6 +285,32 @@ def draw_opponent_keepout(
             )
 
 
+def draw_opponent_downwash(
+    sim: Sim, opp_pos: NDArray, inflate: NDArray, params: OpponentCostParams
+) -> None:
+    """Draw each opponent's wake as the cylinder the downwash cost actually penalises.
+
+    Mirrors :func:`cost.opponent_terms`: radius ``downwash_radius * inflate``, hanging
+    ``downwash_dz`` straight down from the opponent. The penalty is binary, so a single
+    flat-shaded shell is the honest picture -- there is no gradient to fade.
+
+    Args: opp_pos (P, 3) tracked opponent positions; inflate (P,) staleness inflation.
+    """
+    if sim.viewer is None or params.downwash <= 0.0:
+        return
+    half_dz = 0.5 * params.downwash_dz
+    for p in range(opp_pos.shape[0]):
+        pos = np.asarray(opp_pos[p], dtype=float).copy()
+        pos[2] -= half_dz  # MuJoCo cylinders are centred; the wake hangs below the opponent
+        sim.viewer.viewer.add_marker(
+            type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+            pos=pos,
+            size=np.array([params.downwash_radius * float(inflate[p]), half_dz, 0.0]),
+            mat=np.eye(3).flatten(),
+            rgba=np.array([0.2, 0.6, 1.0, 0.18]),
+        )
+
+
 def draw_obstacles(sim: Sim, obstacles: NDArray, gate_frame_obstacles: NDArray) -> None:
     """Mark the pillar and gate-frame keep-out centres."""
     draw_points(sim, obstacles, rgba=(1.0, 0.0, 0.0, 1.0), size=0.02)

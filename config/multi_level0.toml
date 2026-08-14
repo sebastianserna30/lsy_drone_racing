@@ -62,7 +62,7 @@ floor_z = 0.1 # height (m) below which the floor penalty applies
 [controller.mppi.opponent]
 # Keep the joint in-batch opponent here so the "mppi" path
 # stays exercised in sim; deploy_multi.toml uses the "spline_progress" predictor for real flight.
-model = "mppi"                # mppi | spline_progress | const_vel
+model = "const_vel"                # mppi | spline_progress | const_vel
 pred_offset_tau = 0.5         # s; decay of the opponent's off-spline offset in spline_progress
 anchor_fwd = 0.10             # m; forward slack of the theta anchor search window
 anchor_reacquire_dist = 0.75  # m; residual above which the anchor is re-acquired globally
@@ -85,7 +85,7 @@ blend_width = 0.05            # blend width (m/s)
 ibr_iters = 3                  # best-response passes; 0 = single unilateral response
 ibr_mode = "scan"              # scan = Gauss-Seidel (converges) | vmap = Jacobi (can oscillate)
 downwash = 1000.0             # below-opponent wake penalty; the sim does NOT model downwash
-downwash_radius = 0.3         # wake cylinder radius (m)
+downwash_radius = 0.18         # wake cylinder radius (m)
 downwash_dz = 0.6             # wake depth below the opponent (m)
 stale_inflate_rate = 1.0      # keep-out inflation per second of tracking staleness
 stale_max = 0.5               # staleness cap (s) -> max inflation 1 + rate*cap
