@@ -19,7 +19,6 @@ def main():
     """Run the simulation N times and save the results as 'evaluation.csv'."""
     n_runs = 20
     config_file = "deploy_single.toml"
-    #config_file = "level2_MPPI.toml"
     config = load_config(Path(__file__).parents[1] / "config" / config_file)
     ep_times = simulate(
         config=config_file, controller=config.controller.file, n_runs=n_runs, render=False

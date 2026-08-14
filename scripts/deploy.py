@@ -68,7 +68,6 @@ def main(config: str = "level2.toml", controller: str | None = None):
             if terminated or truncated or controller_finished:
                 break
             if (dt := (time.perf_counter() - t_loop)) < (1 / config.env.freq):
-                logger.info(f"{dt=}")
                 time.sleep(1 / config.env.freq - dt)
             else:
                 exc = dt - 1 / config.env.freq

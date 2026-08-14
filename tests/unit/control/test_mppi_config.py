@@ -24,10 +24,8 @@ def mppi_configs() -> list[Path]:
     Discovery is deliberately dynamic: a new MPPI config is covered the moment it is added,
     which is what stops the shipped TOMLs drifting apart as keys change.
 
-    ``config_MPPI.toml`` and ``config_MPPI_original.toml`` carry an ``[controller.mppi]`` table
-    but no ``[env]`` section and no controller ``file``, so the race framework cannot load them
-    at all. They are leftovers from the crazyflow_experiments framework; the ``file`` check
-    below skips them.
+    The ``file`` check below also skips any config carrying an ``[controller.mppi]`` table but
+    no controller ``file``, which the race framework cannot load in the first place.
     """
     found = []
     for path in sorted(CONFIG_DIR.glob("*.toml")):

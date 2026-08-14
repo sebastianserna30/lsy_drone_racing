@@ -66,7 +66,7 @@ def _conditional(runs_path: Path) -> dict[float, float]:
 
 
 def _solo_pace(root: Path) -> dict[float, float]:
-    """progress weight -> opponent's uncontested lap time, from opponent_solo_pace.py."""
+    """Progress weight -> opponent's uncontested lap time, from opponent_solo_pace.py."""
     path = root / "opponent_solo_pace.csv"
     if not path.exists():
         return {}
