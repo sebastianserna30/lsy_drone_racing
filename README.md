@@ -202,47 +202,6 @@ pixi run -e gpu python scripts/animate_ibr.py --config multi_level0.toml
 Raw logs are in `study_logs/`. Plots regenerate from the CSVs via `scripts/plot_*.py` — they
 are deliberately not committed.
 
-### Does modelling the opponent help?
-
-Three arms × 7 `progress` values × 40 seeds = **840 runs** (`study_logs/progress_study.log`),
-ego finish rate:
-
-| `progress` | `const_vel` | `parallel` (joint rollout, IBR off) | IBR |
-| ---: | ---: | ---: | ---: |
-| 0.1 | 82% | 82% | 90% |
-| 1.0 | 68% | 82% | 92% |
-| 1.5 | **42%** | **80%** | **90%** |
-
-The gap opens exactly where it should — at high `progress`, when the ego is flying fast enough
-for the encounter to matter. Rolling both drones out jointly is worth ~38 pp there; the IBR
-passes on top add ~10 pp. At low `progress` everything works, because nothing is contested.
-
-### Can we actually overtake?
-
-Sweeping the *opponent's* pace over 40 seeds × 7 values = **280 runs**
-(`study_logs/pass_sweep.log`). Overtake rate falls from **50%** against the slowest opponent
-(8.48 s lap) to **22–30%** once the opponent is lapping in 4.7–5.0 s — passing is available when
-there is a pace difference to exploit, and not otherwise.
-
-### What does it cost?
-
-`study_logs/bench_ctrl_freq/RESULTS.md`, RTX 4070 Laptop, against the **20 ms** budget of the
-50 Hz env step:
-
-| Arm | p50 (ms) | p99 (ms) | Hz (p99) |
-| --- | ---: | ---: | ---: |
-| `const_vel` (no joint rollout) | 30.6 | 34.1 | 29.3 |
-| `parallel` (IBR off) | 62.8 | 66.7 | 15.0 |
-| **IBR 3 iters (shipped)** | **90.0** | **94.5** | **10.6** |
-| IBR 10 iters | 149.1 | 155.2 | 6.4 |
-
-Decomposed: the joint two-agent rollout is the expensive half (+32 ms), and IBR itself is
-~9–10 ms per iteration, dead linear.
-
-**This is the honest headline: the shipped configuration runs at ~10 Hz against a 50 Hz budget,
-over deadline on 100% of steps.** It is a simulation result. Closing that gap — fewer samples,
-a shorter horizon, or fewer IBR passes — is the open work.
-
 ---
 
 ## Branches
@@ -271,32 +230,3 @@ predicted trajectory is straight-line extrapolation, `opp_pos + opp_vel * dt`.
 Edit the attribute in the source to switch — there is no config surface for it on that branch.
 That surface is exactly what became `[controller.mppi.opponent].model` on `main`, where the
 same two behaviours are `"mppi"` and `"const_vel"` and no source edit is needed.
-
----
-
-## Upstream
-
-### Documentation
-
-The course framework's [official documentation](https://lsy-drone-racing.readthedocs.io/en/latest/getting_started/general.html)
-covers installation, the environment interface, and deployment.
-
-### Difficulty levels
-
-Each task setup is defined by a TOML file. The competition environment always uses **level 2**.
-
-|      Evaluation Scenario      | Rand. Inertial Properties | Randomized Obstacles, Gates | Random Tracks |             Notes              |
-| :---------------------------: | :-----------------------: | :-------------------------: | :-----------: | :----------------------------: |
-| [Level 0](config/level0.toml) |           *No*            |            *No*             |     *No*      |       Perfect knowledge        |
-| [Level 1](config/level1.toml) |          **Yes**          |            *No*             |     *No*      |        Adaptive control        |
-| [Level 2](config/level2.toml) |          **Yes**          |           **Yes**           |     *No*      |          Re-planning           |
-| [Level 3](config/level3.toml) |          **Yes**          |           **Yes**           |    **Yes**    |        Online planning         |
-|         **sim2real**          |     **Real hardware**     |           **Yes**           |    **Yes**    | Simulation-to-reality transfer |
-
-### Dependencies
-
-Built on open-source packages from the [Learning Systems Lab (LSY)](https://www.ce.cit.tum.de/lsy/home/) at TUM:
-
-- [**crazyflow**](https://github.com/learnsyslab/crazyflow) – high-speed, high-fidelity drone simulator with strong sim-to-real performance.
-- [**drone-models**](https://github.com/learnsyslab/drone-models) – accurate drone models for simulation and model-based control.
-- [**drone-controllers**](https://github.com/learnsyslab/drone-controllers) – controllers for the Crazyflie quadrotor.
